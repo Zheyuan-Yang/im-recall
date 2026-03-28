@@ -9,6 +9,10 @@ function getDesktopApi() {
   return window.memolensDesktop ?? null;
 }
 
+export function isElectronShell(): boolean {
+  return navigator.userAgent.toLowerCase().includes("electron");
+}
+
 export function isDesktopRuntime(): boolean {
   return getDesktopApi() !== null;
 }

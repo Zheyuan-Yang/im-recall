@@ -2,6 +2,7 @@ import { useDeferredValue, useEffect, useRef, useState, useTransition } from "re
 
 import { fetchDraftFromBackend } from "./query/api";
 import {
+  isElectronShell,
   isDesktopRuntime,
   pickLocalImageFolder,
   startLocalIndexing,
@@ -60,8 +61,10 @@ function downloadDraft(draft: DraftResult): void {
 
 function App() {
   const desktopRuntime = isDesktopRuntime();
+  const electronShell = isElectronShell();
   const apiBase =
-    import.meta.env.VITE_BACKEND_BASE_URL ?? (desktopRuntime ? "http://127.0.0.1:5000" : "");
+    import.meta.env.VITE_BACKEND_BASE_URL ??
+    (electronShell ? "http://127.0.0.1:5000" : "");
   const [prompt, setPrompt] = useState(INITIAL_PROMPT);
   const [draft, setDraft] = useState<DraftResult>(() => createDraft(INITIAL_PROMPT));
   const [pipeline, setPipeline] = useState<PipelineStep[]>(() =>
@@ -330,7 +333,11 @@ function App() {
                 {isIndexing ? "Indexing..." : "开始建立本地索引"}
               </button>
               <span className="meta-copy">
-                {desktopRuntime ? "Electron main 负责写本地 SQLite" : "当前是浏览器模式"}
+                {desktopRuntime
+                  ? "Electron main 负责写本地 SQLite"
+                  : electronShell
+                    ? "Electron 已启动，但本地桥接还没有挂上"
+                    : "当前是浏览器模式"}
               </span>
             </div>
 
@@ -345,7 +352,13 @@ function App() {
               </div>
               <div className="summary-card">
                 <span className="summary-label">运行方式</span>
-                <strong>{desktopRuntime ? "Electron desktop mode" : "Browser demo mode"}</strong>
+                <strong>
+                  {desktopRuntime
+                    ? "Electron desktop mode"
+                    : electronShell
+                      ? "Electron shell without bridge"
+                      : "Browser demo mode"}
+                </strong>
               </div>
             </div>
 
