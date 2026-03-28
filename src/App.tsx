@@ -59,8 +59,9 @@ function downloadDraft(draft: DraftResult): void {
 }
 
 function App() {
-  const apiBase = import.meta.env.VITE_BACKEND_BASE_URL ?? "";
   const desktopRuntime = isDesktopRuntime();
+  const apiBase =
+    import.meta.env.VITE_BACKEND_BASE_URL ?? (desktopRuntime ? "http://127.0.0.1:5000" : "");
   const [prompt, setPrompt] = useState(INITIAL_PROMPT);
   const [draft, setDraft] = useState<DraftResult>(() => createDraft(INITIAL_PROMPT));
   const [pipeline, setPipeline] = useState<PipelineStep[]>(() =>
