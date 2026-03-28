@@ -1,106 +1,69 @@
-# Image Retrieval App
+# Frontend Notes
 
-This repo uses a split frontend/backend layout so the local image library,
-SQLite DB, a single image embedding backend, and all external API calls can be managed cleanly.
+This folder now contains the first desktop-oriented `Vite + React + TypeScript`
+frontend for MemoLens.
 
-## Recommended Layout
+## Run
 
-```text
-core/                 # Shared config, schema, DB, and text utility layer
-indexing/             # Indexing pipeline, model calls, EXIF/geocode, embeddings
-
-frontend/
-  querying/           # Local Python query prototype, no Flask dependency
-  src/                # React / Vite UI
-    query/            # App-side query planning, SQLite retrieval, rerank, export
-
-backend/
-  app.py              # Flask entrypoint
-  src/
-    api/              # HTTP routes
-
-scripts/              # Project-level smoke tests and migration helpers
-
-config.yaml           # Central config, including separate vision/query model profiles
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
-## Why This Split Works
+The Vite dev server runs on `http://127.0.0.1:5173` by default.
 
-- Frontend owns search state, natural-language query planning, SQLite reads, result reranking, result export, and UI.
-- Backend owns Flask routes, indexing, embedding extraction, EXIF parsing, geocoding, and all OpenAI-compatible API calls.
-- Flask-specific code stays in `backend/`, while indexing/model logic lives in `indexing/`.
-- Shared config/schema/DB/text helpers live in `core/`, so frontend query code no longer depends on `backend/src`.
-- The DB path is colocated with the real image folder, which matches your preference and keeps local state easy to inspect.
-- Query stays local on the app side, while captioning and other heavyweight model work stay in backend.
-- Model settings are centralized in `config.yaml`, with separate active profiles for vision and query planning.
+## Backend Connection
 
-## Backend Endpoint
+- The UI now probes `GET /healthz` and, when the backend is reachable, sends real
+  queries to `POST /v1/retrieval/query`.
+- Returned images are displayed via `GET /v1/library/files/<relative_path>`.
+- If the backend is offline, or retrieval fails, the page falls back to the local
+  mock curation flow so the app still remains usable.
+- In dev mode, Vite proxies `/healthz` and `/v1/*` to `http://127.0.0.1:5000`.
+- If you want to target another backend, set `VITE_BACKEND_BASE_URL`.
 
-The production backend endpoint should be:
+For now, the important runtime path is:
 
 ```text
-POST /v1/indexing/jobs
+/hdd_linux/test
 ```
 
-It scans a folder of local images, extracts metadata, calls an OpenAI-compatible
-vision endpoint for tags/description, computes one image embedding, and writes
-the result into SQLite.
+The backend indexing service uses this folder as the default image library and stores
+the SQLite DB file next to the images:
 
-Before sending image content into embeddings or the vision API, the backend resizes
-each image to width `512` while preserving aspect ratio.
+```text
+/hdd_linux/test/photo_index.db
+```
 
-The recommended indexing payload shape is now one image per request with base64
-content in `input.image.b64`; client code can loop over files and POST them one by one.
+This is a good current default. For packaged desktop builds later, move the folder to
+the app's user-data directory and pass the resolved path into the backend via env vars.
 
-There is a local Python retrieval prototype in `frontend/querying/` for smoke
-testing, and the final app-side query modules should live in `frontend/src/query/`.
+## Suggested Responsibility Split
 
-## Split Recommendation
+- Frontend app layer: query rewrite/planning, SQLite query, local filters, DINO rerank, copy/export, and search session state.
+- Backend Flask service: HTTP routes and app wiring only.
+- Indexing/model layer: indexing jobs, single-model embedding extraction, EXIF/geocode enrichment, DB migrations/writes, and OpenAI-compatible vision/caption calls.
+- Shared support code now lives in `core/`, so frontend query code does not import `backend/src`.
+- React UI should talk to a frontend-side query adapter instead of importing raw SQLite code directly.
+- The active VLM profile lives in the repo-root `config.yaml`, not in the frontend.
 
-- Put SQLite reads, query rewrite/planning, soft filters, retrieval orchestration,
-  DINO reranking, and copy/export behavior on the frontend app side.
-- If the frontend is a desktop app, do not run raw SQLite access from the browser UI layer.
-- Prefer a small local adapter layer in Electron main / preload or Tauri commands, then expose a typed search API to React.
-- Keep embedding model loading, batch indexing, DB schema migration, and all remote model calls inside backend.
-- Put reusable config, schema, DB, and embedding-text helpers in `core/`, not under frontend or backend naming.
+The current Python query prototype already lives on the frontend side in
+`frontend/querying/`, so query orchestration is no longer under `backend/src`.
 
-## Current File Ownership
+## Query Modules
 
-- Backend-owned now:
-  - `backend/app.py`
-  - `backend/src/api/`
-- Indexing-owned now:
-  - `indexing/`
-- Shared-owned now:
-  - `core/config.py`
-  - `core/db.py`
-  - `core/schemas.py`
-  - `core/text_embeddings.py`
-  - `core/semantic_hints.py`
-  - `core/llm_utils.py`
-- Frontend-owned now:
-  - `frontend/querying/`
-- Frontend-owned in the final app:
-  - `frontend/src/query/planner`
-  - `frontend/src/query/sqlite`
-  - `frontend/src/query/retrieval`
-  - `frontend/src/query/rerank`
-  - `frontend/src/query/export`
-- Transitional Python reference code that should eventually be mirrored into frontend app code:
-  - `frontend/querying/planner.py`
-  - `frontend/querying/retrieval.py`
-  - `scripts/test_query.py`
+The app-side query code now starts in `frontend/src/query/`, with the current mock
+studio generator living next to the intended production boundary:
 
-## Notes
+```text
+frontend/src/query/
+  api.ts            # backend retrieval adapter + response mapping
+  mockLibrary.ts    # local photo cards and preset prompts for the UI demo
+  studio.ts         # prompt analysis + mock draft generation
+  types.ts          # typed result/state contracts for the UI
+```
 
-- The default image folder is `/hdd_linux/test`.
-- The default DB path is `/hdd_linux/test/photo_index.db`.
-- The default vision profile is `openai_gpt41_mini`.
-- The default query profile is `minimax_m27`.
-- The default OpenAI endpoint is `https://api.openai.com/v1`.
-- `config.yaml` stores per-VLM profile settings, while env vars remain useful for secrets and quick overrides.
-- The default embedding backend is `dino` via `EMBEDDING_BACKEND=dino`.
-- A simple smoke test script lives at `scripts/test_indexing.py`.
-- A natural-language query smoke test script lives at `scripts/test_query.py`, and it does not use Flask or `backend/src`.
-- For production desktop packaging, you will probably want to point these paths to
-  a user-data directory instead of the repo folder.
+The current Python files under `frontend/querying/` are still a prototype and
+smoke-test harness, but they already match the intended product boundary better
+than putting query code under `backend/src`.

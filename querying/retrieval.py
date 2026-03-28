@@ -16,6 +16,7 @@ from core.schemas import RetrievedImageSummary, RetrievalPlan, RetrievalRequest,
 from core.semantic_hints import expand_text_with_hints
 from core.text_embeddings import TextEmbeddingService, build_combined_text
 
+from .composer import RetrievalDraftComposer
 from .planner import OpenAICompatibleQueryPlanner
 
 
@@ -36,11 +37,13 @@ class RetrievalService:
         repository: ImageIndexRepository,
         planner: OpenAICompatibleQueryPlanner,
         text_embedding_service: TextEmbeddingService,
+        draft_composer: RetrievalDraftComposer,
     ):
         self.settings = settings
         self.repository = repository
         self.planner = planner
         self.text_embedding_service = text_embedding_service
+        self.draft_composer = draft_composer
 
     def run(self, retrieval_request: RetrievalRequest) -> RetrievalResponse:
         current_datetime = datetime.now().astimezone().isoformat()
@@ -83,6 +86,10 @@ class RetrievalService:
             plan,
             query_text_embedding=query_text_embedding,
         )[: plan.query.top_k]
+        title, caption, notes = self.draft_composer.compose(
+            query_text=retrieval_request.text,
+            images=ranked,
+        )
 
         return RetrievalResponse(
             id=f"ret_{int(time.time())}",
@@ -91,6 +98,10 @@ class RetrievalService:
             parsed_query=plan.query,
             data=ranked,
             status="completed",
+            title=title,
+            caption=caption,
+            notes=notes,
+            candidate_count=len(candidates),
         )
 
     def _rank_candidates(
