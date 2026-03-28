@@ -1,0 +1,67 @@
+app:
+  image_library_dir: /hdd_linux/test
+  sqlite_db_path: /hdd_linux/test/photo_index.db
+  process_image_width: 512
+
+embedding:
+  backend: dino
+  device: null
+  clip_model_id: openai/clip-vit-base-patch32
+  dino_model_id: facebook/dinov2-base
+  text_model_id: nomic-ai/nomic-embed-text-v2-moe
+  text_device: null
+  text_query_prefix: "search_query: "
+  text_document_prefix: "search_document: "
+  text_max_length: 512
+
+geocode:
+  enabled: true
+  user_agent: image-retrieval-local/0.1
+
+retrieval:
+  semantic_hints:
+    santa monica park:
+      - ferris wheel
+      - amusement park
+      - pier
+      - beach
+      - pacific park
+    santa monica pier:
+      - ferris wheel
+      - amusement park
+      - beach
+      - pacific park
+    pacific park:
+      - ferris wheel
+      - santa monica pier
+      - amusement park
+
+vlm:
+  active: openai_gpt41_mini
+  profiles:
+    openai_gpt41_mini:
+      provider: openai
+      base_url: https://api.openai.com/v1
+      api_key_env: OPENAI_API_KEY
+      model: gpt-4.1-mini
+      temperature: 0.1
+      max_tokens: 400
+      response_format:
+        type: json_object
+    ollama_qwen35_27b:
+      provider: ollama
+      base_url: http://localhost:11434/v1
+      model: qwen3.5:27b
+      temperature: 0.1
+      max_tokens: 400
+      response_format:
+        type: json_object
+    dashscope_qwen_vl_plus:
+      provider: dashscope
+      base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      api_key_env: DASHSCOPE_API_KEY
+      model: qwen-vl-plus
+      temperature: 0.1
+      max_tokens: 400
+      response_format:
+        type: json_object

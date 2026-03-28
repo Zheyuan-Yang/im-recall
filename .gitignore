@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+frontend/data/images/*
+!frontend/data/images/.gitkeep
+
+*.db
+*.sqlite
+*.sqlite3
+
+.env
+.env.*
+*.JPG
