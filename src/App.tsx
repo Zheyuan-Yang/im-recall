@@ -104,21 +104,27 @@ function App() {
 
         setHealth({
           state: "connected",
-          message: "Local library online",
+          message: apiBase ? `Backend online · ${apiBase}` : "Local library online",
           imageLibraryDir: payload.image_library_dir,
           dbPath: payload.db_path,
         });
-      } catch {
+      } catch (error) {
+        const reason =
+          error instanceof Error && error.message.trim().length > 0
+            ? error.message
+            : "backend unreachable";
         setHealth({
           state: "mock",
-          message: "Mock library mode",
+          message: apiBase
+            ? `Backend unavailable · ${reason}`
+            : "Mock library mode",
         });
       }
     }
 
     void loadHealth();
     return () => controller.abort();
-  }, []);
+  }, [apiBase]);
 
   useEffect(() => {
     const unsubscribe = subscribeToIndexingProgress((progress) => {

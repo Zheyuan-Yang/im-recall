@@ -50,5 +50,12 @@ def create_app(settings: Settings | None = None) -> Flask:
         text_embedding_service=app.extensions["text_embedding_service"],
     )
 
+    @app.after_request
+    def add_cors_headers(response):
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        return response
+
     app.register_blueprint(api_blueprint)
     return app
