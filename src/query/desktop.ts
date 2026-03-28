@@ -35,6 +35,22 @@ export async function startLocalIndexing(
   return api.startIndexing(options);
 }
 
+export async function pauseLocalIndexing(): Promise<boolean | null> {
+  const api = getDesktopApi();
+  if (api === null) {
+    return null;
+  }
+  return api.pauseIndexing();
+}
+
+export async function resumeLocalIndexing(): Promise<boolean | null> {
+  const api = getDesktopApi();
+  if (api === null) {
+    return null;
+  }
+  return api.resumeIndexing();
+}
+
 export function subscribeToIndexingProgress(
   callback: (progress: DesktopIndexingProgress) => void,
 ): (() => void) | null {

@@ -1,10 +1,12 @@
-import { useDeferredValue, useEffect, useRef, useState, useTransition } from "react";
+import { useDeferredValue, useEffect, useRef, useState } from "react";
 
 import { fetchDraftFromBackend } from "./query/api";
 import {
   isElectronShell,
   isDesktopRuntime,
   pickLocalImageFolder,
+  pauseLocalIndexing,
+  resumeLocalIndexing,
   startLocalIndexing,
   subscribeToIndexingProgress,
 } from "./query/desktop";
@@ -12,6 +14,7 @@ import { INITIAL_PROMPT, PROMPT_PRESETS } from "./query/mockLibrary";
 import { analyzePrompt, createDraft, createPipelineSteps } from "./query/studio";
 import type {
   BackendHealth,
+  DesktopIndexingPhase,
   DesktopIndexingProgress,
   DesktopIndexingResult,
   DraftResult,
@@ -20,11 +23,93 @@ import type {
 } from "./query/types";
 
 const PIPELINE_LENGTH = 4;
+const GENERATION_STEP_TARGETS = [14, 38, 66, 86];
+
+type DraftGenerationPhase = "idle" | "running" | "completed";
+
+interface DraftGenerationProgressState {
+  phase: DraftGenerationPhase;
+  percent: number;
+  stepIndex: number;
+  title: string;
+  detail: string;
+}
+
+const IDLE_GENERATION_PROGRESS: DraftGenerationProgressState = {
+  phase: "idle",
+  percent: 0,
+  stepIndex: 0,
+  title: "等待开始",
+  detail: "输入一句话后，系统会先理解需求，再检索、精选，最后生成可直接发的照片组。",
+};
 
 function sleep(duration: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, duration);
   });
+}
+
+function getIndexingPhaseLabel(phase: DesktopIndexingPhase): string {
+  switch (phase) {
+    case "pausing":
+      return "正在暂停";
+    case "paused":
+      return "已暂停";
+    case "finalizing":
+      return "收尾中";
+    case "completed":
+      return "已完成";
+    case "running":
+    default:
+      return "处理中";
+  }
+}
+
+function getIndexingPhaseMessage(progress: DesktopIndexingProgress): string | null {
+  switch (progress.phase) {
+    case "pausing":
+      return "会在当前这张图片处理完成后暂停。";
+    case "paused":
+      return "任务已暂停，继续后会从下一张图片接着跑。";
+    case "finalizing":
+      return "所有图片都已处理完成，正在写入最后结果。";
+    default:
+      return null;
+  }
+}
+
+function getGenerationPhaseLabel(phase: DraftGenerationPhase): string {
+  switch (phase) {
+    case "completed":
+      return "已完成";
+    case "running":
+      return "生成中";
+    case "idle":
+    default:
+      return "待开始";
+  }
+}
+
+function hasVisibleText(value: string): boolean {
+  return value.trim().length > 0;
+}
+
+function normalizeDraftForDisplay(
+  draft: DraftResult,
+  fallbackDraft: DraftResult,
+): DraftResult {
+  const selected = draft.selected.length > 0 ? draft.selected : fallbackDraft.selected;
+  const notes = draft.notes.length > 0 ? draft.notes : fallbackDraft.notes;
+
+  return {
+    ...draft,
+    candidateCount: draft.candidateCount > 0 ? draft.candidateCount : fallbackDraft.candidateCount,
+    title: hasVisibleText(draft.title) ? draft.title : fallbackDraft.title,
+    caption: hasVisibleText(draft.caption) ? draft.caption : fallbackDraft.caption,
+    selected,
+    selectedCount: selected.length,
+    notes,
+  };
 }
 
 function buildExportContent(draft: DraftResult): string {
@@ -68,7 +153,7 @@ function App() {
   const [prompt, setPrompt] = useState(INITIAL_PROMPT);
   const [draft, setDraft] = useState<DraftResult>(() => createDraft(INITIAL_PROMPT));
   const [pipeline, setPipeline] = useState<PipelineStep[]>(() =>
-    createPipelineSteps(null),
+    createPipelineSteps(null, 0),
   );
   const [activeVariant, setActiveVariant] = useState<ToneVariant>("balanced");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -83,11 +168,58 @@ function App() {
   const [indexingProgress, setIndexingProgress] = useState<DesktopIndexingProgress | null>(null);
   const [indexingResult, setIndexingResult] = useState<DesktopIndexingResult | null>(null);
   const [indexingError, setIndexingError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const [generationError, setGenerationError] = useState<string | null>(null);
+  const [hasCompletedGeneration, setHasCompletedGeneration] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState<DraftGenerationProgressState>(
+    IDLE_GENERATION_PROGRESS,
+  );
+  const [isIndexingControlPending, setIsIndexingControlPending] = useState(false);
   const runIdRef = useRef(0);
   const seedRef = useRef(1);
+  const generationProgressTimerRef = useRef<number | null>(null);
   const deferredPrompt = useDeferredValue(prompt);
   const previewAnalysis = analyzePrompt(deferredPrompt || INITIAL_PROMPT);
+  const displayDraft = normalizeDraftForDisplay(
+    draft,
+    createDraft(prompt.trim() || INITIAL_PROMPT, activeVariant, seedRef.current),
+  );
+  const activeResultDraft =
+    health.state === "connected" && !hasCompletedGeneration ? null : displayDraft;
+
+  function clearGenerationProgressTimer(): void {
+    if (generationProgressTimerRef.current !== null) {
+      window.clearInterval(generationProgressTimerRef.current);
+      generationProgressTimerRef.current = null;
+    }
+  }
+
+  function startGenerationProgressDrift(runId: number): void {
+    clearGenerationProgressTimer();
+    generationProgressTimerRef.current = window.setInterval(() => {
+      if (runIdRef.current !== runId) {
+        clearGenerationProgressTimer();
+        return;
+      }
+
+      setGenerationProgress((current) => {
+        if (current.phase !== "running" || current.percent >= 94) {
+          clearGenerationProgressTimer();
+          return current;
+        }
+
+        const nextPercent = Math.min(current.percent + (current.percent < 90 ? 2 : 1), 94);
+        if (nextPercent >= 94) {
+          clearGenerationProgressTimer();
+        }
+
+        return {
+          ...current,
+          percent: nextPercent,
+          detail: "正在把候选照片整理成一组更顺的结果，马上给你最终版本。",
+        };
+      });
+    }, 280);
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -145,51 +277,101 @@ function App() {
     };
   }, []);
 
+  useEffect(() => () => clearGenerationProgressTimer(), []);
+
   async function runGeneration(variant: ToneVariant): Promise<void> {
     const normalizedPrompt = prompt.trim() || INITIAL_PROMPT;
     const runId = runIdRef.current + 1;
     runIdRef.current = runId;
+    clearGenerationProgressTimer();
 
     setIsGenerating(true);
     setActiveVariant(variant);
     setCopyState("idle");
+    setGenerationError(null);
 
     for (let index = 0; index < PIPELINE_LENGTH; index += 1) {
-      setPipeline(createPipelineSteps(index, index));
+      const nextPipeline = createPipelineSteps(index, index);
+      const activeStep = nextPipeline.find((step) => step.status === "active") ?? nextPipeline[index];
+      setPipeline(nextPipeline);
+      setGenerationProgress({
+        phase: "running",
+        percent: GENERATION_STEP_TARGETS[index] ?? 86,
+        stepIndex: index + 1,
+        title: activeStep.title,
+        detail: activeStep.detail,
+      });
       await sleep(index === 0 ? 360 : 520);
       if (runIdRef.current !== runId) {
+        clearGenerationProgressTimer();
         return;
       }
     }
 
     seedRef.current += 1;
+    startGenerationProgressDrift(runId);
     let nextDraft: DraftResult | null = null;
     if (health.state === "connected") {
       try {
-        nextDraft = await fetchDraftFromBackend(normalizedPrompt, variant, apiBase);
-      } catch {
+        nextDraft = await fetchDraftFromBackend(normalizedPrompt, variant, {
+          apiBase,
+          dbPath: selectedDbPath,
+          libraryRootPath: selectedFolderPath,
+        });
+        if (nextDraft === null) {
+          setGenerationError("本地库里暂时没有可展示的检索结果，请先确认已经完成 indexing。");
+        }
+      } catch (error) {
+        setGenerationError(
+          error instanceof Error ? error.message : "生成照片组失败，暂时无法从本地库取回结果。",
+        );
         nextDraft = null;
       }
     }
 
     if (runIdRef.current !== runId) {
+      clearGenerationProgressTimer();
       return;
     }
 
-    if (nextDraft === null) {
+    if (nextDraft === null && health.state !== "connected") {
       nextDraft = createDraft(normalizedPrompt, variant, seedRef.current);
     }
 
-    startTransition(() => {
-      setDraft(nextDraft);
-      setPipeline(createPipelineSteps(null));
+    if (nextDraft === null) {
+      clearGenerationProgressTimer();
+      setGenerationProgress({
+        phase: "idle",
+        percent: 0,
+        stepIndex: 0,
+        title: "没有生成出可展示结果",
+        detail: "先检查本地 indexing 是否完成，或者看一下上面的错误提示。",
+      });
+      setPipeline(createPipelineSteps(null, 0));
+      setIsGenerating(false);
+      return;
+    }
+
+    clearGenerationProgressTimer();
+    setGenerationProgress({
+      phase: "completed",
+      percent: 100,
+      stepIndex: PIPELINE_LENGTH,
+      title: "照片组已生成",
+      detail: "结果已经准备好，可以直接查看、复制文案，或者继续再来一版。",
     });
+    setHasCompletedGeneration(true);
+    setDraft(nextDraft);
+    setPipeline(createPipelineSteps(null));
     setIsGenerating(false);
   }
 
   async function handleCopyCaption(): Promise<void> {
+    if (!activeResultDraft) {
+      return;
+    }
     try {
-      await navigator.clipboard.writeText(draft.caption);
+      await navigator.clipboard.writeText(activeResultDraft.caption);
       setCopyState("copied");
       window.setTimeout(() => setCopyState("idle"), 1600);
     } catch {
@@ -221,6 +403,8 @@ function App() {
     setSelectedDbPath(selection.dbPath);
     setIndexingResult(null);
     setIndexingProgress(null);
+    setGenerationError(null);
+    setHasCompletedGeneration(false);
   }
 
   async function handleStartIndexing(): Promise<void> {
@@ -230,8 +414,12 @@ function App() {
     }
 
     setIsIndexing(true);
+    setIsIndexingControlPending(false);
     setIndexingError(null);
+    setIndexingProgress(null);
     setIndexingResult(null);
+    setGenerationError(null);
+    setHasCompletedGeneration(false);
 
     try {
       const result = await startLocalIndexing({
@@ -256,6 +444,42 @@ function App() {
       setIsIndexing(false);
     }
   }
+
+  async function handlePauseIndexing(): Promise<void> {
+    setIndexingError(null);
+    setIsIndexingControlPending(true);
+    try {
+      const paused = await pauseLocalIndexing();
+      if (paused === null) {
+        setIndexingError("当前浏览器模式不支持暂停本地 indexing，请使用 Electron 运行。");
+      }
+    } catch (error) {
+      setIndexingError(error instanceof Error ? error.message : "暂停 indexing 失败。");
+    } finally {
+      setIsIndexingControlPending(false);
+    }
+  }
+
+  async function handleResumeIndexing(): Promise<void> {
+    setIndexingError(null);
+    setIsIndexingControlPending(true);
+    try {
+      const resumed = await resumeLocalIndexing();
+      if (resumed === null) {
+        setIndexingError("当前浏览器模式不支持继续本地 indexing，请使用 Electron 运行。");
+      }
+    } catch (error) {
+      setIndexingError(error instanceof Error ? error.message : "继续 indexing 失败。");
+    } finally {
+      setIsIndexingControlPending(false);
+    }
+  }
+
+  const indexingPhase = indexingProgress?.phase ?? null;
+  const canPauseIndexing = indexingPhase === "running";
+  const canResumeIndexing = indexingPhase === "paused" || indexingPhase === "pausing";
+  const canControlIndexing = canPauseIndexing || canResumeIndexing;
+  const indexingPhaseMessage = indexingProgress ? getIndexingPhaseMessage(indexingProgress) : null;
 
   return (
     <div className="page-shell">
@@ -332,6 +556,18 @@ function App() {
               >
                 {isIndexing ? "Indexing..." : "开始建立本地索引"}
               </button>
+              {isIndexing && indexingProgress && canControlIndexing ? (
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() =>
+                    void (canResumeIndexing ? handleResumeIndexing() : handlePauseIndexing())
+                  }
+                  disabled={isIndexingControlPending}
+                >
+                  {canResumeIndexing ? "继续 indexing" : "暂停 indexing"}
+                </button>
+              ) : null}
               <span className="meta-copy">
                 {desktopRuntime
                   ? "Electron main 负责写本地 SQLite"
@@ -379,7 +615,12 @@ function App() {
                       {indexingProgress.completed} / {indexingProgress.total} 已处理
                     </p>
                   </div>
-                  <span className="analysis-token">{indexingProgress.percent}%</span>
+                  <div className="indexing-progress-meta">
+                    <span className="analysis-token progress-phase-token">
+                      {getIndexingPhaseLabel(indexingProgress.phase)}
+                    </span>
+                    <span className="analysis-token">{indexingProgress.percent}%</span>
+                  </div>
                 </div>
                 <div className="progress-bar">
                   <div
@@ -395,6 +636,9 @@ function App() {
                 <p className="progress-current-file">
                   当前文件: {indexingProgress.currentFile ?? "准备中"}
                 </p>
+                {indexingPhaseMessage ? (
+                  <p className="progress-status-note">{indexingPhaseMessage}</p>
+                ) : null}
               </section>
             ) : null}
 
@@ -468,9 +712,13 @@ function App() {
                 {isGenerating && activeVariant === "soft" ? "Refining..." : "更柔和一点"}
               </button>
               <span className="meta-copy">
-                {draft.candidateCount} candidates → {draft.selectedCount} selected
+                {activeResultDraft
+                  ? `${activeResultDraft.candidateCount} candidates → ${activeResultDraft.selectedCount} selected`
+                  : "等待这次本地检索的真实结果"}
               </span>
             </div>
+
+            {generationError ? <p className="library-error">{generationError}</p> : null}
 
             <div className="composer-meta">
               <div>
@@ -505,6 +753,35 @@ function App() {
               <p className="panel-title">让用户感觉系统真的在工作</p>
             </div>
 
+            <section className="indexing-progress-card generation-progress-card">
+              <div className="indexing-progress-head">
+                <div>
+                  <span className="summary-label">Live Progress</span>
+                  <p className="indexing-progress-title">{generationProgress.title}</p>
+                </div>
+                <div className="indexing-progress-meta">
+                  <span className="analysis-token progress-phase-token">
+                    {getGenerationPhaseLabel(generationProgress.phase)}
+                  </span>
+                  <span className="analysis-token">{generationProgress.percent}%</span>
+                </div>
+              </div>
+              <div className="progress-bar">
+                <div
+                  className="progress-bar-fill"
+                  style={{ width: `${generationProgress.percent}%` }}
+                />
+              </div>
+              <div className="progress-stats">
+                <span>
+                  {generationProgress.stepIndex > 0
+                    ? `阶段 ${generationProgress.stepIndex} / ${PIPELINE_LENGTH}`
+                    : "等待新的 prompt"}
+                </span>
+              </div>
+              <p className="progress-current-file">{generationProgress.detail}</p>
+            </section>
+
             <div className="pipeline-list">
               {pipeline.map((step) => (
                 <section
@@ -535,69 +812,84 @@ function App() {
             <div className="panel-head result-head">
               <div>
                 <p className="panel-label">Ready-to-post result</p>
-                <p className="result-title">{draft.title}</p>
-                <p className="result-subtitle">selected from your local photo library</p>
+                <p className="result-title">{activeResultDraft?.title ?? "等待生成结果"}</p>
+                <p className="result-subtitle">
+                  {activeResultDraft
+                    ? "selected from your local photo library"
+                    : "完成一次真实检索后，这里会显示本地照片结果"}
+                </p>
               </div>
-              <div className="result-badges">
-                <span className="analysis-token">{draft.analysis.toneLabel}</span>
-                <span className="analysis-token">{draft.analysis.focus}</span>
-                <span className="analysis-token">{draft.analysis.timeHint}</span>
-              </div>
+              {activeResultDraft ? (
+                <div className="result-badges">
+                  <span className="analysis-token">{activeResultDraft.analysis.toneLabel}</span>
+                  <span className="analysis-token">{activeResultDraft.analysis.focus}</span>
+                  <span className="analysis-token">{activeResultDraft.analysis.timeHint}</span>
+                </div>
+              ) : null}
             </div>
 
             <section className="caption-card">
-              <p>{draft.caption}</p>
+              <p>
+                {activeResultDraft?.caption ??
+                  "还没有拿到本地检索结果。先确认已经完成 indexing，然后再生成一次照片组。"}
+              </p>
             </section>
 
-            <section className="result-grid">
-              {draft.selected.map((photo, index) => (
-                <article
-                  className="photo-card"
-                  key={photo.id}
-                  style={{ backgroundColor: photo.surfaceTint }}
-                >
-                  <img src={photo.imageUrl} alt={photo.title} />
-                  <div className="photo-overlay">
-                    {index === 0 ? <span className="hero-tag">Hero</span> : null}
-                    <div className="photo-meta">
-                      <strong>{photo.title}</strong>
-                      <span>{photo.slot}</span>
+            {activeResultDraft ? (
+              <section className="result-grid">
+                {activeResultDraft.selected.map((photo, index) => (
+                  <article
+                    className="photo-card"
+                    key={photo.id}
+                    style={{ backgroundColor: photo.surfaceTint }}
+                  >
+                    <img src={photo.imageUrl} alt={photo.title} />
+                    <div className="photo-overlay">
+                      {index === 0 ? <span className="hero-tag">Hero</span> : null}
+                      <div className="photo-meta">
+                        <strong>{photo.title}</strong>
+                        <span>{photo.slot}</span>
+                      </div>
                     </div>
-                  </div>
-                </article>
-              ))}
-            </section>
+                  </article>
+                ))}
+              </section>
+            ) : null}
 
-            <div className="result-actions">
-              <button className="primary-button" type="button" onClick={() => void handleCopyCaption()}>
-                {copyState === "copied"
-                  ? "已复制文案"
-                  : copyState === "failed"
-                    ? "复制失败"
-                    : "复制文案"}
-              </button>
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => void runGeneration("soft")}
-                disabled={isGenerating}
-              >
-                更柔和一点
-              </button>
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => downloadDraft(draft)}
-              >
-                导出结果
-              </button>
-            </div>
+            {activeResultDraft ? (
+              <div className="result-actions">
+                <button className="primary-button" type="button" onClick={() => void handleCopyCaption()}>
+                  {copyState === "copied"
+                    ? "已复制文案"
+                    : copyState === "failed"
+                      ? "复制失败"
+                      : "复制文案"}
+                </button>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => void runGeneration("soft")}
+                  disabled={isGenerating}
+                >
+                  更柔和一点
+                </button>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => downloadDraft(activeResultDraft)}
+                >
+                  导出结果
+                </button>
+              </div>
+            ) : null}
 
-            <div className="result-notes">
-              {draft.notes.map((note) => (
-                <p key={note}>{note}</p>
-              ))}
-            </div>
+            {activeResultDraft ? (
+              <div className="result-notes">
+                {activeResultDraft.notes.map((note) => (
+                  <p key={note}>{note}</p>
+                ))}
+              </div>
+            ) : null}
           </article>
         </section>
 
@@ -612,9 +904,11 @@ function App() {
           </p>
         </footer>
       </main>
-      {(isGenerating || isPending || isIndexing) && (
+      {(isGenerating || isIndexing) && (
         <div className="floating-state">
-          {isIndexing ? "indexing local library..." : "curating draft..."}
+          {isIndexing
+            ? "indexing local library..."
+            : `${generationProgress.title} · ${generationProgress.percent}%`}
         </div>
       )}
     </div>

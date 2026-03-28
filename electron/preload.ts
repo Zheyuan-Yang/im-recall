@@ -14,6 +14,12 @@ contextBridge.exposeInMainWorld("memolensDesktop", {
   startIndexing(options: DesktopIndexingStartOptions): Promise<DesktopIndexingResult> {
     return ipcRenderer.invoke("memolens:start-indexing", options);
   },
+  pauseIndexing(): Promise<boolean> {
+    return ipcRenderer.invoke("memolens:pause-indexing");
+  },
+  resumeIndexing(): Promise<boolean> {
+    return ipcRenderer.invoke("memolens:resume-indexing");
+  },
   onIndexingProgress(callback: (progress: DesktopIndexingProgress) => void): () => void {
     const listener = (_event: IpcRendererEvent, progress: DesktopIndexingProgress) => {
       callback(progress);

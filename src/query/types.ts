@@ -1,5 +1,11 @@
 export type ToneVariant = "balanced" | "soft";
 export type PipelineStatus = "pending" | "active" | "done";
+export type DesktopIndexingPhase =
+  | "running"
+  | "pausing"
+  | "paused"
+  | "finalizing"
+  | "completed";
 
 export interface PromptPreset {
   label: string;
@@ -70,7 +76,7 @@ export interface DesktopIndexingStartOptions {
 }
 
 export interface DesktopIndexingProgress {
-  phase: "running" | "finalizing" | "completed";
+  phase: DesktopIndexingPhase;
   total: number;
   completed: number;
   indexed: number;

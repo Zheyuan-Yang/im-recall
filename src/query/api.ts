@@ -32,6 +32,12 @@ interface RetrievalApiResponse {
   data: RetrievalApiImage[];
 }
 
+interface FetchDraftOptions {
+  apiBase?: string;
+  dbPath?: string | null;
+  libraryRootPath?: string | null;
+}
+
 const SURFACE_TINTS = [
   "#d8cdbd",
   "#c6d5ca",
@@ -77,8 +83,13 @@ function toPhotoAsset(
   image: RetrievalApiImage,
   index: number,
   apiBase: string,
+  libraryRootPath?: string | null,
 ): PhotoAsset {
   const location = [image.place_name, image.country].filter(Boolean).join(" · ") || "Local library";
+  const encodedRelativePath = encodeRelativePath(image.relative_path);
+  const imageUrl = libraryRootPath
+    ? `${apiBase}/v1/library/files/${encodedRelativePath}?root_path=${encodeURIComponent(libraryRootPath)}`
+    : `${apiBase}/v1/library/files/${encodedRelativePath}`;
 
   return {
     id: image.id,
@@ -89,7 +100,7 @@ function toPhotoAsset(
     slot: inferSlot(image, index),
     concepts: image.tags,
     surfaceTint: SURFACE_TINTS[index % SURFACE_TINTS.length],
-    imageUrl: `${apiBase}/v1/library/files/${encodeRelativePath(image.relative_path)}`,
+    imageUrl,
     score: image.score,
   };
 }
@@ -110,8 +121,9 @@ function fallbackNotes(images: RetrievalApiImage[]): string[] {
 export async function fetchDraftFromBackend(
   prompt: string,
   variant: ToneVariant,
-  apiBase = "",
+  options: FetchDraftOptions = {},
 ): Promise<DraftResult | null> {
+  const apiBase = options.apiBase ?? "";
   const response = await fetch(`${apiBase}/v1/retrieval/query`, {
     method: "POST",
     headers: {
@@ -120,6 +132,8 @@ export async function fetchDraftFromBackend(
     body: JSON.stringify({
       text: prompt,
       top_k: 9,
+      db_path: options.dbPath ?? undefined,
+      image_library_dir: options.libraryRootPath ?? undefined,
     }),
   });
 
@@ -133,7 +147,9 @@ export async function fetchDraftFromBackend(
   }
 
   const analysis = analyzePrompt(prompt.toLowerCase());
-  const selected = payload.data.slice(0, 9).map((image, index) => toPhotoAsset(image, index, apiBase));
+  const selected = payload.data.slice(0, 9).map((image, index) =>
+    toPhotoAsset(image, index, apiBase, options.libraryRootPath),
+  );
   const generatedCopy = payload.generated_copy ?? null;
   const resolvedTitle = payload.title ?? generatedCopy?.title ?? null;
   const resolvedCaption = payload.caption ?? generatedCopy?.body ?? null;

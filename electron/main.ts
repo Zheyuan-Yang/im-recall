@@ -8,6 +8,7 @@ import { LocalIndexStore, type StoredImageRecordTransport } from "./localIndexSt
 
 import type {
   DesktopFolderSelection,
+  DesktopIndexingPhase,
   DesktopIndexingProgress,
   DesktopIndexingResult,
   DesktopIndexingStartOptions,
@@ -50,6 +51,15 @@ const MIME_BY_EXTENSION: Record<string, string> = {
 const CURRENT_FILE = fileURLToPath(import.meta.url);
 const CURRENT_DIR = dirname(CURRENT_FILE);
 const PROJECT_ROOT = resolve(CURRENT_DIR, "..", "..");
+
+interface ActiveIndexingJob {
+  sender: WebContents;
+  progress: DesktopIndexingProgress;
+  pauseRequested: boolean;
+  resumeResolvers: Array<() => void>;
+}
+
+let activeIndexingJob: ActiveIndexingJob | null = null;
 
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -104,6 +114,47 @@ function toRelativePath(rootPath: string, filePath: string): string {
 
 function emitProgress(sender: WebContents, progress: DesktopIndexingProgress): void {
   sender.send("memolens:indexing-progress", progress);
+}
+
+function publishJobProgress(
+  job: ActiveIndexingJob,
+  patch: Partial<DesktopIndexingProgress>,
+): DesktopIndexingProgress {
+  const nextProgress = {
+    ...job.progress,
+    ...patch,
+  };
+  job.progress = nextProgress;
+  emitProgress(job.sender, nextProgress);
+  return nextProgress;
+}
+
+function releaseResumeResolvers(job: ActiveIndexingJob): void {
+  const resolvers = [...job.resumeResolvers];
+  job.resumeResolvers = [];
+  for (const resolve of resolvers) {
+    resolve();
+  }
+}
+
+async function waitIfPaused(job: ActiveIndexingJob): Promise<void> {
+  if (!job.pauseRequested) {
+    return;
+  }
+
+  if (job.progress.phase !== "paused") {
+    publishJobProgress(job, {
+      phase: "paused",
+    });
+  }
+
+  await new Promise<void>((resolve) => {
+    job.resumeResolvers.push(resolve);
+  });
+}
+
+function canPausePhase(phase: DesktopIndexingPhase): boolean {
+  return phase === "running" || phase === "pausing" || phase === "paused";
 }
 
 async function analyzeSingleImage({
@@ -171,6 +222,10 @@ ipcMain.handle("memolens:pick-image-folder", async () => {
 ipcMain.handle(
   "memolens:start-indexing",
   async (event, options: DesktopIndexingStartOptions): Promise<DesktopIndexingResult> => {
+    if (activeIndexingJob !== null) {
+      throw new Error("已有一个 indexing 任务正在运行，请先暂停后继续，或等待当前任务完成。");
+    }
+
     const folderPath = resolve(options.folderPath);
     const dbPath = resolve(options.dbPath ?? join(folderPath, "photo_index.db"));
     const apiBase = options.apiBase?.trim() || "http://127.0.0.1:5000";
@@ -182,8 +237,26 @@ ipcMain.handle(
     let indexed = 0;
     let skipped = 0;
     let failed = 0;
+    const job: ActiveIndexingJob = {
+      sender: event.sender,
+      progress: {
+        phase: "running",
+        total: imageFiles.length,
+        completed,
+        indexed,
+        skipped,
+        failed,
+        currentFile: null,
+        folderPath,
+        dbPath,
+        percent: imageFiles.length === 0 ? 100 : 0,
+      },
+      pauseRequested: false,
+      resumeResolvers: [],
+    };
+    activeIndexingJob = job;
 
-    emitProgress(event.sender, {
+    publishJobProgress(job, {
       phase: "running",
       total: imageFiles.length,
       completed,
@@ -196,72 +269,111 @@ ipcMain.handle(
       percent: imageFiles.length === 0 ? 100 : 0,
     });
 
-    for (const filePath of imageFiles) {
-      const currentFile = toRelativePath(folderPath, filePath);
-      try {
-        const fileBuffer = await readFile(filePath);
-        const sha256 = createHash("sha256").update(fileBuffer).digest("hex");
+    try {
+      for (const filePath of imageFiles) {
+        await waitIfPaused(job);
 
-        if (!options.reindex && store.hasSha256(sha256)) {
-          skipped += 1;
-        } else {
-          const record = await analyzeSingleImage({
-            apiBase,
-            filePath,
-            rootPath: folderPath,
-            model: options.model ?? null,
-          });
-          store.upsert(record);
-          indexed += 1;
+        const currentFile = toRelativePath(folderPath, filePath);
+        publishJobProgress(job, {
+          phase: "running",
+          currentFile,
+        });
+
+        try {
+          const fileBuffer = await readFile(filePath);
+          const sha256 = createHash("sha256").update(fileBuffer).digest("hex");
+
+          if (!options.reindex && store.hasSha256(sha256)) {
+            skipped += 1;
+          } else {
+            const record = await analyzeSingleImage({
+              apiBase,
+              filePath,
+              rootPath: folderPath,
+              model: options.model ?? null,
+            });
+            store.upsert(record);
+            indexed += 1;
+          }
+        } catch (error) {
+          failed += 1;
+          errors.push(`${currentFile}: ${error instanceof Error ? error.message : String(error)}`);
         }
-      } catch (error) {
-        failed += 1;
-        errors.push(`${currentFile}: ${error instanceof Error ? error.message : String(error)}`);
+
+        completed += 1;
+        publishJobProgress(job, {
+          phase:
+            completed >= imageFiles.length ? "finalizing" : job.pauseRequested ? "pausing" : "running",
+          completed,
+          indexed,
+          skipped,
+          failed,
+          currentFile,
+          percent:
+            imageFiles.length === 0 ? 100 : Math.round((completed / imageFiles.length) * 100),
+        });
       }
 
-      completed += 1;
-      emitProgress(event.sender, {
-        phase: completed >= imageFiles.length ? "finalizing" : "running",
+      const result: DesktopIndexingResult = {
+        status: "completed",
+        folderPath,
+        dbPath,
         total: imageFiles.length,
+        indexed,
+        skipped,
+        failed,
+        errors,
+      };
+      publishJobProgress(job, {
+        phase: "completed",
         completed,
         indexed,
         skipped,
         failed,
-        currentFile,
-        folderPath,
-        dbPath,
-        percent:
-          imageFiles.length === 0 ? 100 : Math.round((completed / imageFiles.length) * 100),
+        currentFile: null,
+        percent: 100,
       });
+      return result;
+    } finally {
+      releaseResumeResolvers(job);
+      store.close();
+      if (activeIndexingJob === job) {
+        activeIndexingJob = null;
+      }
     }
-
-    store.close();
-
-    const result: DesktopIndexingResult = {
-      status: "completed",
-      folderPath,
-      dbPath,
-      total: imageFiles.length,
-      indexed,
-      skipped,
-      failed,
-      errors,
-    };
-    emitProgress(event.sender, {
-      phase: "completed",
-      total: imageFiles.length,
-      completed,
-      indexed,
-      skipped,
-      failed,
-      currentFile: null,
-      folderPath,
-      dbPath,
-      percent: 100,
-    });
-    return result;
   },
 );
+
+ipcMain.handle("memolens:pause-indexing", async (): Promise<boolean> => {
+  const job = activeIndexingJob;
+  if (job === null || !canPausePhase(job.progress.phase)) {
+    return false;
+  }
+
+  job.pauseRequested = true;
+  if (job.progress.phase === "running") {
+    publishJobProgress(job, {
+      phase: "pausing",
+    });
+  }
+  return true;
+});
+
+ipcMain.handle("memolens:resume-indexing", async (): Promise<boolean> => {
+  const job = activeIndexingJob;
+  if (job === null || !canPausePhase(job.progress.phase)) {
+    return false;
+  }
+
+  job.pauseRequested = false;
+  if (job.progress.phase === "paused" || job.progress.phase === "pausing") {
+    publishJobProgress(job, {
+      phase: "running",
+    });
+  }
+  releaseResumeResolvers(job);
+  return true;
+});
 
 app.whenReady().then(() => {
   createWindow();

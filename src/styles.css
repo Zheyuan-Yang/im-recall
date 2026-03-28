@@ -324,6 +324,7 @@ img {
 
 .library-note,
 .indexing-progress-card,
+.generation-progress-card,
 .library-result {
   padding: 18px 20px;
   border: 1px solid var(--stroke);
@@ -333,9 +334,14 @@ img {
 
 .library-note p,
 .indexing-progress-card p,
+.generation-progress-card p,
 .library-result p {
   margin: 0;
   line-height: 1.65;
+}
+
+.generation-progress-card {
+  margin-bottom: 18px;
 }
 
 .indexing-progress-head {
@@ -343,6 +349,13 @@ img {
   align-items: start;
   justify-content: space-between;
   gap: 16px;
+}
+
+.indexing-progress-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: end;
+  gap: 10px;
 }
 
 .indexing-progress-title {
@@ -378,6 +391,13 @@ img {
   margin-top: 10px;
   color: var(--muted);
   font-size: 0.92rem;
+}
+
+.progress-status-note {
+  margin-top: 10px;
+  color: #5f7567;
+  font-size: 0.92rem;
+  font-weight: 700;
 }
 
 .library-error {
@@ -512,6 +532,11 @@ img {
   color: var(--muted);
   font-size: 0.82rem;
   font-weight: 800;
+}
+
+.progress-phase-token {
+  background: rgba(126, 149, 132, 0.14);
+  color: var(--accent-deep);
 }
 
 .pipeline-list {

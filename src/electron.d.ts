@@ -5,6 +5,8 @@ declare global {
     memolensDesktop?: {
       pickImageFolder(): Promise<DesktopFolderSelection | null>;
       startIndexing(options: DesktopIndexingStartOptions): Promise<DesktopIndexingResult>;
+      pauseIndexing(): Promise<boolean>;
+      resumeIndexing(): Promise<boolean>;
       onIndexingProgress(
         callback: (progress: DesktopIndexingProgress) => void,
       ): () => void;
