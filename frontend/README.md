@@ -25,7 +25,7 @@ the app's user-data directory and pass the resolved path into the backend via en
 - Indexing/model layer: indexing jobs, single-model embedding extraction, EXIF/geocode enrichment, DB migrations/writes, and OpenAI-compatible vision/caption calls.
 - Shared support code now lives in `core/`, so frontend query code does not import `backend/src`.
 - React UI should talk to a frontend-side query adapter instead of importing raw SQLite code directly.
-- The active VLM profile lives in the repo-root `config.yaml`, not in the frontend.
+- The active vision/query profiles live in the repo-root `config.yaml`, not in the frontend.
 
 The current Python query prototype already lives on the frontend side in
 `frontend/querying/`, so query orchestration is no longer under `backend/src`.

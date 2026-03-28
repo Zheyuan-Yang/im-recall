@@ -6,7 +6,11 @@ import re
 from openai import OpenAI
 
 from core.config import Settings
-from core.llm_utils import coerce_json_object, create_openai_client
+from core.llm_utils import (
+    coerce_json_object,
+    create_openai_client,
+    request_minimax_chat_completion,
+)
 from core.schemas import VisionMetadata
 from .files import PreparedImage
 
@@ -42,13 +46,15 @@ class OpenAICompatibleVisionClient:
         prepared_image: PreparedImage,
         model: str,
     ) -> VisionMetadata:
-        if not self.settings.openai_api_key:
+        if not self.settings.vision_api_key:
             return self._fallback_metadata(prepared_image.source_name)
+        if self.settings.vision_provider == "minimax":
+            return self._describe_image_with_minimax(prepared_image, model)
 
         payload = {
             "model": model,
-            "temperature": self.settings.vlm_temperature,
-            "response_format": self.settings.vlm_response_format,
+            "temperature": self.settings.vision_temperature,
+            "response_format": self.settings.vision_response_format,
             "messages": [
                 {
                     "role": "system",
@@ -81,11 +87,55 @@ class OpenAICompatibleVisionClient:
             temperature=payload["temperature"],
             response_format=payload["response_format"],
             messages=payload["messages"],
-            max_tokens=self.settings.vlm_max_tokens,
+            max_tokens=self.settings.vision_max_tokens,
         )
 
         content = response.choices[0].message.content
         parsed = coerce_json_object(content)
+        return self._coerce_metadata_from_parsed(parsed, prepared_image.source_name)
+
+    def _describe_image_with_minimax(
+        self,
+        prepared_image: PreparedImage,
+        model: str,
+    ) -> VisionMetadata:
+        encoded_image = base64.b64encode(prepared_image.content_bytes).decode("utf-8")
+        response = request_minimax_chat_completion(
+            api_key=self.settings.vision_api_key,
+            base_url=self.settings.vision_base_url,
+            model=model,
+            temperature=self.settings.vision_temperature,
+            max_tokens=self.settings.vision_max_tokens,
+            response_format=self.settings.vision_response_format,
+            messages=[
+                {
+                    "role": "system",
+                    "content": VISION_PROMPT,
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "Generate tags, a short factual description, and a conservative "
+                        "location hint for this image. Return strict JSON only.\n"
+                        f"[Image base64:{encoded_image}]"
+                    ),
+                },
+            ],
+        )
+        choices = response.get("choices")
+        if not isinstance(choices, list) or not choices:
+            raise RuntimeError("MiniMax response did not contain choices.")
+        message = choices[0].get("message") if isinstance(choices[0], dict) else None
+        content = message.get("content") if isinstance(message, dict) else None
+        parsed = coerce_json_object(content)
+        return self._coerce_metadata_from_parsed(parsed, prepared_image.source_name)
+
+    def _coerce_metadata_from_parsed(
+        self,
+        parsed: dict[str, object],
+        source_name: str,
+    ) -> VisionMetadata:
+        fallback = self._fallback_metadata(source_name)
 
         tags = parsed.get("tags", [])
         description = str(parsed.get("description", "")).strip()
@@ -101,7 +151,7 @@ class OpenAICompatibleVisionClient:
                 cleaned_tags.append(normalized)
 
         if not description:
-            description = self._fallback_metadata(prepared_image.source_name).description
+            description = fallback.description
 
         normalized_location_hint = None
         if location_hint is not None:
@@ -110,7 +160,7 @@ class OpenAICompatibleVisionClient:
                 normalized_location_hint = candidate_hint
 
         return VisionMetadata(
-            tags=cleaned_tags[:12] or self._fallback_metadata(prepared_image.source_name).tags,
+            tags=cleaned_tags[:12] or fallback.tags,
             description=description,
             location_hint=normalized_location_hint,
         )
@@ -118,8 +168,8 @@ class OpenAICompatibleVisionClient:
     def _get_client(self) -> OpenAI:
         if self._client is None:
             self._client = create_openai_client(
-                api_key=self.settings.openai_api_key,
-                base_url=self.settings.openai_base_url,
+                api_key=self.settings.vision_api_key,
+                base_url=self.settings.vision_base_url,
             )
         return self._client
 

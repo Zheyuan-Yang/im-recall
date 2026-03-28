@@ -21,7 +21,7 @@ backend/
 
 scripts/              # Project-level smoke tests and migration helpers
 
-config.yaml           # Central config, including multiple VLM profiles
+config.yaml           # Central config, including separate vision/query model profiles
 ```
 
 ## Why This Split Works
@@ -32,7 +32,7 @@ config.yaml           # Central config, including multiple VLM profiles
 - Shared config/schema/DB/text helpers live in `core/`, so frontend query code no longer depends on `backend/src`.
 - The DB path is colocated with the real image folder, which matches your preference and keeps local state easy to inspect.
 - Query stays local on the app side, while captioning and other heavyweight model work stay in backend.
-- VLM settings are centralized in `config.yaml`, with one profile per vision-language model.
+- Model settings are centralized in `config.yaml`, with separate active profiles for vision and query planning.
 
 ## Backend Endpoint
 
@@ -95,7 +95,8 @@ testing, and the final app-side query modules should live in `frontend/src/query
 
 - The default image folder is `/hdd_linux/test`.
 - The default DB path is `/hdd_linux/test/photo_index.db`.
-- The default active VLM profile is `openai_gpt41_mini`.
+- The default vision profile is `openai_gpt41_mini`.
+- The default query profile is `minimax_m27`.
 - The default OpenAI endpoint is `https://api.openai.com/v1`.
 - `config.yaml` stores per-VLM profile settings, while env vars remain useful for secrets and quick overrides.
 - The default embedding backend is `dino` via `EMBEDDING_BACKEND=dino`.

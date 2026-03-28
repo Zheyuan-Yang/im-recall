@@ -32,9 +32,15 @@ def parse_args() -> argparse.Namespace:
         help="Optional path to config.yaml.",
     )
     parser.add_argument(
-        "--vlm-profile",
+        "--vision-profile",
         default=None,
-        help="Override the active VLM profile from config.yaml.",
+        help="Override the vision VLM profile from config.yaml.",
+    )
+    parser.add_argument(
+        "--vlm-profile",
+        dest="legacy_vlm_profile",
+        default=None,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--image-dir",
@@ -75,8 +81,9 @@ def main() -> int:
 
     if args.config:
         os.environ["APP_CONFIG_PATH"] = args.config
-    if args.vlm_profile:
-        os.environ["VLM_PROFILE"] = args.vlm_profile
+    selected_profile = args.vision_profile or args.legacy_vlm_profile
+    if selected_profile:
+        os.environ["VISION_VLM_PROFILE"] = selected_profile
 
     app = create_app()
     settings = app.config["SETTINGS"]
@@ -90,7 +97,7 @@ def main() -> int:
 
     aggregated = {
         "object": "image_index.batch",
-        "model": args.model or settings.vlm_model,
+        "model": args.model or settings.vision_model,
         "image_dir": str(image_dir),
         "indexed": [],
         "skipped": [],
@@ -103,7 +110,7 @@ def main() -> int:
             payload = _build_single_image_payload(
                 image_path=image_path,
                 image_dir=image_dir,
-                model=args.model or settings.vlm_model,
+                model=args.model or settings.vision_model,
                 reindex=args.reindex,
             )
             response = client.post("/v1/indexing/jobs", json=payload)

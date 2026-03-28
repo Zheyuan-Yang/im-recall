@@ -5,7 +5,11 @@ import re
 from openai import OpenAI
 
 from core.config import Settings
-from core.llm_utils import coerce_json_object, create_openai_client
+from core.llm_utils import (
+    coerce_json_object,
+    create_openai_client,
+    request_minimax_chat_completion,
+)
 from core.schemas import RetrievalPlan, StructuredRetrievalQuery
 
 
@@ -60,31 +64,57 @@ class OpenAICompatibleQueryPlanner:
         current_datetime: str,
         top_k_override: int | None = None,
     ) -> RetrievalPlan:
-        if not self.settings.openai_api_key:
+        if not self.settings.query_api_key:
             return RetrievalPlan(
                 can_fulfill=False,
                 reason="Cannot fulfill your request.",
                 query=None,
             )
 
-        response = self._get_client().chat.completions.create(
-            model=self.settings.vlm_model,
-            temperature=0.0,
-            response_format=self.settings.vlm_response_format,
-            max_tokens=self.settings.vlm_max_tokens,
-            messages=[
-                {
-                    "role": "system",
-                    "content": QUERY_PLANNER_PROMPT.format(current_datetime=current_datetime),
-                },
-                {
-                    "role": "user",
-                    "content": text,
-                },
-            ],
-        )
+        if self.settings.query_provider == "minimax":
+            response = request_minimax_chat_completion(
+                api_key=self.settings.query_api_key,
+                base_url=self.settings.query_base_url,
+                model=self.settings.query_model,
+                temperature=0.0,
+                max_tokens=self.settings.query_max_tokens,
+                response_format=self.settings.query_response_format,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": QUERY_PLANNER_PROMPT.format(current_datetime=current_datetime),
+                    },
+                    {
+                        "role": "user",
+                        "content": text,
+                    },
+                ],
+            )
+            choices = response.get("choices")
+            if not isinstance(choices, list) or not choices:
+                raise RuntimeError("MiniMax response did not contain choices.")
+            message = choices[0].get("message") if isinstance(choices[0], dict) else None
+            content = message.get("content") if isinstance(message, dict) else None
+            parsed = coerce_json_object(content)
+        else:
+            response = self._get_client().chat.completions.create(
+                model=self.settings.query_model,
+                temperature=0.0,
+                response_format=self.settings.query_response_format,
+                max_tokens=self.settings.query_max_tokens,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": QUERY_PLANNER_PROMPT.format(current_datetime=current_datetime),
+                    },
+                    {
+                        "role": "user",
+                        "content": text,
+                    },
+                ],
+            )
 
-        parsed = coerce_json_object(response.choices[0].message.content)
+            parsed = coerce_json_object(response.choices[0].message.content)
         if not parsed.get("can_fulfill"):
             return RetrievalPlan(
                 can_fulfill=False,
@@ -135,8 +165,8 @@ class OpenAICompatibleQueryPlanner:
     def _get_client(self) -> OpenAI:
         if self._client is None:
             self._client = create_openai_client(
-                api_key=self.settings.openai_api_key,
-                base_url=self.settings.openai_base_url,
+                api_key=self.settings.query_api_key,
+                base_url=self.settings.query_base_url,
             )
         return self._client
 

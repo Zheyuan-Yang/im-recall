@@ -30,7 +30,7 @@ def create_indexing_job():
         indexing_request = parse_indexing_request(
             payload=payload,
             default_image_dir=str(settings.image_library_dir),
-            default_model=settings.vlm_model,
+            default_model=settings.vision_model,
         )
     except ValueError as exc:
         return (

@@ -89,7 +89,7 @@ class IndexingService:
                 )
                 vision_metadata = self.vision_client.describe_image(
                     prepared_image=prepared_image,
-                    model=indexing_request.model or self.settings.vlm_model,
+                    model=indexing_request.model or self.settings.vision_model,
                 )
                 embedding = self.embedding_service.encode_image(prepared_image.image)
                 combined_text = build_combined_text(
@@ -232,7 +232,7 @@ class IndexingService:
                 )
                 vision_metadata = self.vision_client.describe_image(
                     prepared_image=prepared_image,
-                    model=indexing_request.model or self.settings.vlm_model,
+                    model=indexing_request.model or self.settings.vision_model,
                 )
                 embedding = self.embedding_service.encode_image(prepared_image.image)
                 combined_text = build_combined_text(

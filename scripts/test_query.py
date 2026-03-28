@@ -33,9 +33,15 @@ def parse_args() -> argparse.Namespace:
         help="Optional path to config.yaml.",
     )
     parser.add_argument(
-        "--vlm-profile",
+        "--query-profile",
         default=None,
-        help="Override the active VLM profile from config.yaml.",
+        help="Override the query-planner model profile from config.yaml.",
+    )
+    parser.add_argument(
+        "--vlm-profile",
+        dest="legacy_vlm_profile",
+        default=None,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--top-k",
@@ -57,8 +63,9 @@ def main() -> int:
 
     if args.config:
         os.environ["APP_CONFIG_PATH"] = args.config
-    if args.vlm_profile:
-        os.environ["VLM_PROFILE"] = args.vlm_profile
+    selected_profile = args.query_profile or args.legacy_vlm_profile
+    if selected_profile:
+        os.environ["QUERY_VLM_PROFILE"] = selected_profile
 
     settings = Settings.from_env()
     settings.ensure_directories()

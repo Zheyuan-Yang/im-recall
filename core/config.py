@@ -57,14 +57,22 @@ class Settings:
     config_path: Path
     image_library_dir: Path
     db_path: Path
-    openai_base_url: str
-    openai_api_key: str | None
-    vlm_model: str
-    vlm_provider: str
-    vlm_profile_name: str
-    vlm_temperature: float
-    vlm_max_tokens: int | None
-    vlm_response_format: dict[str, Any]
+    vision_base_url: str
+    vision_api_key: str | None
+    vision_model: str
+    vision_provider: str
+    vision_profile_name: str
+    vision_temperature: float
+    vision_max_tokens: int | None
+    vision_response_format: dict[str, Any]
+    query_base_url: str
+    query_api_key: str | None
+    query_model: str
+    query_provider: str
+    query_profile_name: str
+    query_temperature: float
+    query_max_tokens: int | None
+    query_response_format: dict[str, Any]
     semantic_hints: dict[str, list[str]]
     embedding_backend: str
     clip_model_id: str
@@ -116,48 +124,40 @@ class Settings:
             )
         ).expanduser().resolve()
 
-        profile_name = os.getenv("VLM_PROFILE", str(vlm_config.get("active", "")).strip())
-        if not profile_name:
-            raise ValueError("Config is missing `vlm.active` and VLM_PROFILE is not set.")
-        if profile_name not in raw_profiles:
-            raise ValueError(
-                f"Unknown VLM profile `{profile_name}`. Available: {', '.join(sorted(raw_profiles))}"
-            )
-
-        raw_profile = raw_profiles[profile_name]
-        if not isinstance(raw_profile, dict):
-            raise ValueError(f"VLM profile `{profile_name}` must be a mapping.")
-
-        api_key_env = raw_profile.get("api_key_env")
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key and isinstance(api_key_env, str) and api_key_env.strip():
-            api_key = os.getenv(api_key_env.strip())
-        if not api_key and profile_name.startswith("ollama"):
-            api_key = os.getenv("OLLAMA_API_KEY")
-
-        resolved_profile = VLMProfile(
-            name=profile_name,
-            provider=str(raw_profile.get("provider", "openai_compatible")),
-            base_url=str(raw_profile.get("base_url", "")).rstrip("/"),
-            api_key=api_key,
-            model=os.getenv("VLM_MODEL", str(raw_profile.get("model", ""))).strip(),
-            temperature=float(raw_profile.get("temperature", 0.1)),
-            max_tokens=(
-                int(raw_profile["max_tokens"])
-                if raw_profile.get("max_tokens") is not None
-                else None
+        legacy_profile_name = os.getenv("VLM_PROFILE")
+        vision_profile_name = os.getenv(
+            "VISION_VLM_PROFILE",
+            (
+                legacy_profile_name
+                or str(vlm_config.get("vision_active") or vlm_config.get("active", "")).strip()
             ),
-            response_format=(
-                raw_profile.get("response_format")
-                if isinstance(raw_profile.get("response_format"), dict)
-                else {"type": "json_object"}
+        )
+        query_profile_name = os.getenv(
+            "QUERY_VLM_PROFILE",
+            (
+                legacy_profile_name
+                or str(vlm_config.get("query_active") or vlm_config.get("active", "")).strip()
             ),
         )
 
-        if not resolved_profile.base_url:
-            raise ValueError(f"VLM profile `{profile_name}` is missing `base_url`.")
-        if not resolved_profile.model:
-            raise ValueError(f"VLM profile `{profile_name}` is missing `model`.")
+        vision_profile = _resolve_vlm_profile(
+            raw_profiles=raw_profiles,
+            profile_name=vision_profile_name,
+            role="vision",
+            model_override_env="VISION_MODEL",
+            legacy_model_override_env="VLM_MODEL",
+            base_url_override_env="VISION_BASE_URL",
+            legacy_base_url_override_env="OPENAI_BASE_URL",
+        )
+        query_profile = _resolve_vlm_profile(
+            raw_profiles=raw_profiles,
+            profile_name=query_profile_name,
+            role="query",
+            model_override_env="QUERY_MODEL",
+            legacy_model_override_env=None,
+            base_url_override_env="QUERY_BASE_URL",
+            legacy_base_url_override_env=None,
+        )
 
         return cls(
             project_root=project_root,
@@ -166,14 +166,22 @@ class Settings:
             config_path=config_path,
             image_library_dir=image_library_dir,
             db_path=db_path,
-            openai_base_url=os.getenv("OPENAI_BASE_URL", resolved_profile.base_url).rstrip("/"),
-            openai_api_key=resolved_profile.api_key,
-            vlm_model=resolved_profile.model,
-            vlm_provider=resolved_profile.provider,
-            vlm_profile_name=resolved_profile.name,
-            vlm_temperature=resolved_profile.temperature,
-            vlm_max_tokens=resolved_profile.max_tokens,
-            vlm_response_format=resolved_profile.response_format,
+            vision_base_url=vision_profile.base_url,
+            vision_api_key=vision_profile.api_key,
+            vision_model=vision_profile.model,
+            vision_provider=vision_profile.provider,
+            vision_profile_name=vision_profile.name,
+            vision_temperature=vision_profile.temperature,
+            vision_max_tokens=vision_profile.max_tokens,
+            vision_response_format=vision_profile.response_format,
+            query_base_url=query_profile.base_url,
+            query_api_key=query_profile.api_key,
+            query_model=query_profile.model,
+            query_provider=query_profile.provider,
+            query_profile_name=query_profile.name,
+            query_temperature=query_profile.temperature,
+            query_max_tokens=query_profile.max_tokens,
+            query_response_format=query_profile.response_format,
             semantic_hints=normalize_semantic_hints(retrieval_config.get("semantic_hints")),
             embedding_backend=os.getenv(
                 "EMBEDDING_BACKEND",
@@ -236,3 +244,96 @@ class Settings:
     def ensure_directories(self) -> None:
         self.image_library_dir.mkdir(parents=True, exist_ok=True)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+
+
+def _resolve_vlm_profile(
+    *,
+    raw_profiles: dict[str, Any],
+    profile_name: str,
+    role: str,
+    model_override_env: str,
+    legacy_model_override_env: str | None,
+    base_url_override_env: str,
+    legacy_base_url_override_env: str | None,
+) -> VLMProfile:
+    if not profile_name:
+        raise ValueError(
+            f"Config is missing `vlm.{role}_active`, and {role.upper()}_VLM_PROFILE is not set."
+        )
+    if profile_name not in raw_profiles:
+        raise ValueError(
+            f"Unknown {role} VLM profile `{profile_name}`. "
+            f"Available: {', '.join(sorted(raw_profiles))}"
+        )
+
+    raw_profile = raw_profiles[profile_name]
+    if not isinstance(raw_profile, dict):
+        raise ValueError(f"VLM profile `{profile_name}` must be a mapping.")
+
+    provider = str(raw_profile.get("provider", "openai_compatible")).strip().lower()
+    api_key = _resolve_profile_api_key(
+        profile_name=profile_name,
+        provider=provider,
+        raw_profile=raw_profile,
+    )
+    model = os.getenv(model_override_env)
+    if model is None and legacy_model_override_env is not None:
+        model = os.getenv(legacy_model_override_env)
+    if model is None:
+        model = str(raw_profile.get("model", ""))
+
+    base_url = os.getenv(base_url_override_env)
+    if base_url is None and legacy_base_url_override_env is not None:
+        base_url = os.getenv(legacy_base_url_override_env)
+    if base_url is None:
+        base_url = str(raw_profile.get("base_url", ""))
+
+    resolved_profile = VLMProfile(
+        name=profile_name,
+        provider=provider,
+        base_url=base_url.rstrip("/"),
+        api_key=api_key,
+        model=model.strip(),
+        temperature=float(raw_profile.get("temperature", 0.1)),
+        max_tokens=(
+            int(raw_profile["max_tokens"])
+            if raw_profile.get("max_tokens") is not None
+            else None
+        ),
+        response_format=(
+            raw_profile.get("response_format")
+            if isinstance(raw_profile.get("response_format"), dict)
+            else {"type": "json_object"}
+        ),
+    )
+
+    if not resolved_profile.base_url:
+        raise ValueError(f"{role.title()} VLM profile `{profile_name}` is missing `base_url`.")
+    if not resolved_profile.model:
+        raise ValueError(f"{role.title()} VLM profile `{profile_name}` is missing `model`.")
+    return resolved_profile
+
+
+def _resolve_profile_api_key(
+    *,
+    profile_name: str,
+    provider: str,
+    raw_profile: dict[str, Any],
+) -> str | None:
+    api_key_env = raw_profile.get("api_key_env")
+    api_key = None
+    if isinstance(api_key_env, str) and api_key_env.strip():
+        api_key = os.getenv(api_key_env.strip())
+
+    if not api_key and profile_name.startswith("ollama"):
+        api_key = os.getenv("OLLAMA_API_KEY")
+    if not api_key and provider == "openai":
+        api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key and provider == "dashscope":
+        api_key = os.getenv("DASHSCOPE_API_KEY")
+    if not api_key and provider == "minimax":
+        api_key = os.getenv("MINIMAX_KEY")
+
+    if isinstance(api_key, str):
+        api_key = api_key.strip() or None
+    return api_key
