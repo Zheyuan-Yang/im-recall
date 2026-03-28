@@ -1,8 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, type WebContents } from "electron";
 import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
-import { basename, extname, join, relative, resolve, sep } from "node:path";
-import { pathToFileURL } from "node:url";
+import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { LocalIndexStore, type StoredImageRecordTransport } from "./localIndexStore.js";
 
@@ -47,6 +47,10 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   ".heif": "image/heif",
 };
 
+const CURRENT_FILE = fileURLToPath(import.meta.url);
+const CURRENT_DIR = dirname(CURRENT_FILE);
+const PROJECT_ROOT = resolve(CURRENT_DIR, "..", "..");
+
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: 1560,
@@ -57,7 +61,8 @@ function createWindow(): BrowserWindow {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      preload: join(app.getAppPath(), "electron-dist", "electron", "preload.js"),
+      sandbox: false,
+      preload: join(CURRENT_DIR, "preload.js"),
     },
   });
 
@@ -65,7 +70,7 @@ function createWindow(): BrowserWindow {
   if (devUrl) {
     void window.loadURL(devUrl);
   } else {
-    const indexPath = join(app.getAppPath(), "dist", "index.html");
+    const indexPath = join(PROJECT_ROOT, "dist", "index.html");
     void window.loadURL(pathToFileURL(indexPath).toString());
   }
 
