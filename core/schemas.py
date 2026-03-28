@@ -236,6 +236,25 @@ class RetrievalResponse:
         }
 
 
+@dataclass(slots=True)
+class GeneratedCopy:
+    model: str
+    title: str | None
+    body: str
+    highlights: list[str]
+    image_count: int
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "object": "generated_copy",
+            "model": self.model,
+            "title": self.title,
+            "body": self.body,
+            "highlights": self.highlights,
+            "image_count": self.image_count,
+        }
+
+
 def parse_indexing_request(
     payload: dict[str, object],
     default_image_dir: str,

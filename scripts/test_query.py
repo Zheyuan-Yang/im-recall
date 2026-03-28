@@ -12,7 +12,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from frontend.querying import OpenAICompatibleQueryPlanner, RetrievalService  # noqa: E402
+from frontend.querying import (  # noqa: E402
+    OpenAICompatibleQueryPlanner,
+    RetrievalCopywriter,
+    RetrievalService,
+)
 from core.config import Settings  # noqa: E402
 from core.db import ImageIndexRepository  # noqa: E402
 from core.schemas import RetrievalRequest  # noqa: E402
@@ -55,6 +59,17 @@ def parse_args() -> argparse.Namespace:
         default=9,
         help="How many retrieved images to copy into the current working directory.",
     )
+    parser.add_argument(
+        "--copywriter-image-limit",
+        type=int,
+        default=6,
+        help="How many top retrieved images to send into the VLM copywriter.",
+    )
+    parser.add_argument(
+        "--skip-copywriting",
+        action="store_true",
+        help="Skip the post-retrieval VLM copywriting step.",
+    )
     return parser.parse_args()
 
 
@@ -77,6 +92,7 @@ def main() -> int:
         planner=OpenAICompatibleQueryPlanner(settings),
         text_embedding_service=TextEmbeddingService(settings),
     )
+    copywriter = RetrievalCopywriter(settings)
     result = retrieval_service.run(
         RetrievalRequest(
             text=args.text,
@@ -92,6 +108,23 @@ def main() -> int:
     )
     if isinstance(body, dict):
         body["copied_files"] = copied_files
+        body["generated_copy"] = None
+        if (
+            not args.skip_copywriting
+            and result.status == "completed"
+            and result.data
+            and args.copywriter_image_limit > 0
+        ):
+            try:
+                generated_copy = copywriter.generate(
+                    query_text=args.text,
+                    retrieved_images=result.data,
+                    image_library_dir=settings.image_library_dir,
+                    image_limit=args.copywriter_image_limit,
+                )
+                body["generated_copy"] = generated_copy.to_dict()
+            except Exception as exc:
+                body["copywriting_error"] = str(exc)
     print(json.dumps(body, indent=2, ensure_ascii=False))
     return 0 if body.get("status") in {"completed", "cannot_fulfill"} else 1
 
