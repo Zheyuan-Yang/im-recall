@@ -1,3 +1,33 @@
 node_modules
 dist
 .npm-cache
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Local env and secrets
+.env
+.env.*
+!.env.example
+
+# Local tooling
+.codex
+.codex/
+.vscode/
+.idea/
+
+# OS noise
+.DS_Store
+
+# Python virtualenvs and caches
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Local outputs
+retrieval_*.JPG
+retrieval_*.JPEG
+retrieval_*.jpg
+retrieval_*.jpeg

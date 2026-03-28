@@ -22,6 +22,13 @@ interface RetrievalApiResponse {
   caption?: string | null;
   notes?: string[];
   candidate_count?: number | null;
+  generated_copy?: {
+    model: string;
+    title: string | null;
+    body: string;
+    highlights: string[];
+    image_count: number;
+  } | null;
   data: RetrievalApiImage[];
 }
 
@@ -127,20 +134,27 @@ export async function fetchDraftFromBackend(
 
   const analysis = analyzePrompt(prompt.toLowerCase());
   const selected = payload.data.slice(0, 9).map((image, index) => toPhotoAsset(image, index, apiBase));
+  const generatedCopy = payload.generated_copy ?? null;
+  const resolvedTitle = payload.title ?? generatedCopy?.title ?? null;
+  const resolvedCaption = payload.caption ?? generatedCopy?.body ?? null;
+  const resolvedNotes = payload.notes ?? generatedCopy?.highlights ?? null;
 
   return {
     id: payload.id,
     prompt,
     title:
-      payload.title ??
+      resolvedTitle ??
       (variant === "soft" ? "把普通日子放轻一点" : "认真生活的最近"),
     caption:
-      payload.caption ??
+      resolvedCaption ??
       "把最近的照片重新排成一组之后，情绪和顺序都会变得更清楚一些。",
     candidateCount: payload.candidate_count ?? payload.data.length,
     selectedCount: selected.length,
     selected,
     analysis,
-    notes: payload.notes && payload.notes.length > 0 ? payload.notes : fallbackNotes(payload.data),
+    notes:
+      resolvedNotes && resolvedNotes.length > 0
+        ? resolvedNotes
+        : fallbackNotes(payload.data),
   };
 }
