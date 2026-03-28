@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -59,6 +60,38 @@ class StoredImageRecord:
     created_at: str
     updated_at: str
 
+    def to_transport_dict(self) -> dict[str, object]:
+        return {
+            "object": "stored_image_record",
+            "id": self.id,
+            "sha256": self.sha256,
+            "filename": self.filename,
+            "relative_path": self.relative_path,
+            "mime_type": self.mime_type,
+            "file_size": self.file_size,
+            "width": self.width,
+            "height": self.height,
+            "taken_at": self.taken_at,
+            "lat": self.lat,
+            "lon": self.lon,
+            "altitude": self.altitude,
+            "place_name": self.place_name,
+            "country": self.country,
+            "description": self.description,
+            "tags": self.tags,
+            "combined_text": self.combined_text,
+            "text_embedding_model": self.text_embedding_model,
+            "combined_text_embedding_b64": (
+                base64.b64encode(self.combined_text_embedding_blob).decode("utf-8")
+                if self.combined_text_embedding_blob is not None
+                else None
+            ),
+            "embedding_backend": self.embedding_backend,
+            "embedding_b64": base64.b64encode(self.embedding_blob).decode("utf-8"),
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
 
 @dataclass(slots=True)
 class UploadedImageInput:
@@ -82,6 +115,7 @@ class IndexingRequest:
     input: IndexingInput
     reindex: bool = False
     limit: int | None = None
+    persist_to_server: bool = False
 
 
 @dataclass(slots=True)
@@ -123,6 +157,7 @@ class IndexingJobResult:
     indexed: list[IndexedImageSummary]
     skipped: list[IndexedImageSummary]
     failed: list[IndexedImageSummary]
+    records: list[StoredImageRecord]
     created: int
     status: str = "completed"
 
@@ -136,6 +171,7 @@ class IndexingJobResult:
             "data": [item.to_dict() for item in self.indexed],
             "skipped": [item.to_dict() for item in self.skipped],
             "errors": [item.to_dict() for item in self.failed],
+            "records": [item.to_transport_dict() for item in self.records],
             "meta": {
                 "image_dir": self.image_dir,
                 "db_path": self.db_path,
@@ -317,6 +353,11 @@ def parse_indexing_request(
         raise ValueError("`reindex` must be a boolean.")
     if not isinstance(recursive, bool):
         raise ValueError("`recursive` must be a boolean.")
+    persist_to_server = payload.get("persist_to_server")
+    if persist_to_server is None:
+        persist_to_server = image_payload is None
+    if not isinstance(persist_to_server, bool):
+        raise ValueError("`persist_to_server` must be a boolean.")
 
     return IndexingRequest(
         model=payload.get("model") if isinstance(payload.get("model"), str) else default_model,
@@ -328,6 +369,7 @@ def parse_indexing_request(
         ),
         reindex=reindex,
         limit=limit,
+        persist_to_server=persist_to_server,
     )
 
 

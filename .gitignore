@@ -1,5 +1,6 @@
 node_modules
 dist
+electron-dist
 .npm-cache
 
 # Python caches

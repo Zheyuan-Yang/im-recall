@@ -44,7 +44,9 @@ class IndexingService:
         self.geocoder = geocoder
 
     def run(self, indexing_request: IndexingRequest) -> IndexingJobResult:
-        library_root = Path(indexing_request.input.image_dir or self.settings.image_library_dir).expanduser().resolve()
+        library_root = Path(
+            indexing_request.input.image_dir or self.settings.image_library_dir
+        ).expanduser().resolve()
         if indexing_request.input.image is not None:
             return self._run_uploaded_image(indexing_request, library_root)
 
@@ -53,6 +55,7 @@ class IndexingService:
         indexed: list[IndexedImageSummary] = []
         skipped: list[IndexedImageSummary] = []
         failed: list[IndexedImageSummary] = []
+        records: list[StoredImageRecord] = []
 
         for image_path in candidates:
             try:
@@ -69,7 +72,11 @@ class IndexingService:
                 )
                 continue
 
-            if self.repository.has_sha256(local_metadata.sha256) and not indexing_request.reindex:
+            if (
+                indexing_request.persist_to_server
+                and self.repository.has_sha256(local_metadata.sha256)
+                and not indexing_request.reindex
+            ):
                 skipped.append(
                     IndexedImageSummary(
                         id=local_metadata.id,
@@ -132,14 +139,17 @@ class IndexingService:
                     created_at=now_iso,
                     updated_at=now_iso,
                 )
-                self.repository.upsert(record)
+                if indexing_request.persist_to_server:
+                    self.repository.upsert(record)
+                records.append(record)
+                summary_status = "indexed" if indexing_request.persist_to_server else "processed"
 
                 indexed.append(
                     IndexedImageSummary(
                         id=record.id,
                         filename=record.filename,
                         relative_path=record.relative_path,
-                        status="indexed",
+                        status=summary_status,
                         tags=record.tags,
                         description=record.description,
                         taken_at=record.taken_at,
@@ -167,6 +177,7 @@ class IndexingService:
             indexed=indexed,
             skipped=skipped,
             failed=failed,
+            records=records,
             created=int(time.time()),
         )
 
@@ -178,6 +189,7 @@ class IndexingService:
         indexed: list[IndexedImageSummary] = []
         skipped: list[IndexedImageSummary] = []
         failed: list[IndexedImageSummary] = []
+        records: list[StoredImageRecord] = []
 
         assert indexing_request.input.image is not None
         uploaded = indexing_request.input.image
@@ -209,10 +221,15 @@ class IndexingService:
                 indexed=indexed,
                 skipped=skipped,
                 failed=failed,
+                records=records,
                 created=int(time.time()),
             )
 
-        if self.repository.has_sha256(local_metadata.sha256) and not indexing_request.reindex:
+        if (
+            indexing_request.persist_to_server
+            and self.repository.has_sha256(local_metadata.sha256)
+            and not indexing_request.reindex
+        ):
             skipped.append(
                 IndexedImageSummary(
                     id=local_metadata.id,
@@ -275,13 +292,16 @@ class IndexingService:
                     created_at=now_iso,
                     updated_at=now_iso,
                 )
-                self.repository.upsert(record)
+                if indexing_request.persist_to_server:
+                    self.repository.upsert(record)
+                records.append(record)
+                summary_status = "indexed" if indexing_request.persist_to_server else "processed"
                 indexed.append(
                     IndexedImageSummary(
                         id=record.id,
                         filename=record.filename,
                         relative_path=record.relative_path,
-                        status="indexed",
+                        status=summary_status,
                         tags=record.tags,
                         description=record.description,
                         taken_at=record.taken_at,
@@ -309,6 +329,7 @@ class IndexingService:
             indexed=indexed,
             skipped=skipped,
             failed=failed,
+            records=records,
             created=int(time.time()),
         )
 

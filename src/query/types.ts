@@ -56,3 +56,39 @@ export interface BackendHealth {
   dbPath?: string;
 }
 
+export interface DesktopFolderSelection {
+  folderPath: string;
+  dbPath: string;
+}
+
+export interface DesktopIndexingStartOptions {
+  folderPath: string;
+  dbPath?: string;
+  apiBase?: string;
+  model?: string | null;
+  reindex?: boolean;
+}
+
+export interface DesktopIndexingProgress {
+  phase: "running" | "finalizing" | "completed";
+  total: number;
+  completed: number;
+  indexed: number;
+  skipped: number;
+  failed: number;
+  currentFile: string | null;
+  folderPath: string;
+  dbPath: string;
+  percent: number;
+}
+
+export interface DesktopIndexingResult {
+  status: "completed";
+  folderPath: string;
+  dbPath: string;
+  total: number;
+  indexed: number;
+  skipped: number;
+  failed: number;
+  errors: string[];
+}

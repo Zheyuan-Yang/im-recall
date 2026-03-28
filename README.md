@@ -6,12 +6,27 @@ frontend for MemoLens.
 ## Run
 
 ```bash
-cd frontend
 npm install
-npm run dev
+python backend/app.py
 ```
 
-The Vite dev server runs on `http://127.0.0.1:5173` by default.
+In another terminal:
+
+```bash
+npm run electron
+```
+
+For hot-reload UI development:
+
+```bash
+npm run dev
+ELECTRON_RENDERER_URL=http://127.0.0.1:5173 npx electron --no-sandbox .
+```
+
+The Vite dev server runs on `http://127.0.0.1:5173` by default. On Linux dev
+machines, Electron is launched with `--no-sandbox` because the bundled
+`chrome-sandbox` helper is often not configured with the required root-owned
+`4755` permissions.
 
 ## Backend Connection
 

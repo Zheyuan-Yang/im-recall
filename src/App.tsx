@@ -1,9 +1,22 @@
 import { useDeferredValue, useEffect, useRef, useState, useTransition } from "react";
 
 import { fetchDraftFromBackend } from "./query/api";
+import {
+  isDesktopRuntime,
+  pickLocalImageFolder,
+  startLocalIndexing,
+  subscribeToIndexingProgress,
+} from "./query/desktop";
 import { INITIAL_PROMPT, PROMPT_PRESETS } from "./query/mockLibrary";
 import { analyzePrompt, createDraft, createPipelineSteps } from "./query/studio";
-import type { BackendHealth, DraftResult, PipelineStep, ToneVariant } from "./query/types";
+import type {
+  BackendHealth,
+  DesktopIndexingProgress,
+  DesktopIndexingResult,
+  DraftResult,
+  PipelineStep,
+  ToneVariant,
+} from "./query/types";
 
 const PIPELINE_LENGTH = 4;
 
@@ -47,6 +60,7 @@ function downloadDraft(draft: DraftResult): void {
 
 function App() {
   const apiBase = import.meta.env.VITE_BACKEND_BASE_URL ?? "";
+  const desktopRuntime = isDesktopRuntime();
   const [prompt, setPrompt] = useState(INITIAL_PROMPT);
   const [draft, setDraft] = useState<DraftResult>(() => createDraft(INITIAL_PROMPT));
   const [pipeline, setPipeline] = useState<PipelineStep[]>(() =>
@@ -59,6 +73,12 @@ function App() {
     state: "checking",
     message: "Checking local backend",
   });
+  const [selectedFolderPath, setSelectedFolderPath] = useState<string | null>(null);
+  const [selectedDbPath, setSelectedDbPath] = useState<string | null>(null);
+  const [isIndexing, setIsIndexing] = useState(false);
+  const [indexingProgress, setIndexingProgress] = useState<DesktopIndexingProgress | null>(null);
+  const [indexingResult, setIndexingResult] = useState<DesktopIndexingResult | null>(null);
+  const [indexingError, setIndexingError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const runIdRef = useRef(0);
   const seedRef = useRef(1);
@@ -98,6 +118,21 @@ function App() {
 
     void loadHealth();
     return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToIndexingProgress((progress) => {
+      setIndexingProgress(progress);
+      setSelectedFolderPath(progress.folderPath);
+      setSelectedDbPath(progress.dbPath);
+      if (progress.phase === "completed") {
+        setIsIndexing(false);
+      }
+    });
+
+    return () => {
+      unsubscribe?.();
+    };
   }, []);
 
   async function runGeneration(variant: ToneVariant): Promise<void> {
@@ -166,6 +201,52 @@ function App() {
     });
   }
 
+  async function handlePickFolder(): Promise<void> {
+    setIndexingError(null);
+    const selection = await pickLocalImageFolder();
+    if (!selection) {
+      return;
+    }
+    setSelectedFolderPath(selection.folderPath);
+    setSelectedDbPath(selection.dbPath);
+    setIndexingResult(null);
+    setIndexingProgress(null);
+  }
+
+  async function handleStartIndexing(): Promise<void> {
+    if (!selectedFolderPath) {
+      setIndexingError("请先选择一个本地图像文件夹。");
+      return;
+    }
+
+    setIsIndexing(true);
+    setIndexingError(null);
+    setIndexingResult(null);
+
+    try {
+      const result = await startLocalIndexing({
+        folderPath: selectedFolderPath,
+        dbPath: selectedDbPath ?? undefined,
+        apiBase: apiBase || "http://127.0.0.1:5000",
+      });
+      if (result === null) {
+        setIndexingError("当前浏览器模式不支持本地 SQLite，请使用 Electron 运行。");
+        setIsIndexing(false);
+        return;
+      }
+      setIndexingResult(result);
+      setSelectedFolderPath(result.folderPath);
+      setSelectedDbPath(result.dbPath);
+      setHealth((currentHealth) => ({
+        ...currentHealth,
+        dbPath: result.dbPath,
+      }));
+    } catch (error) {
+      setIndexingError(error instanceof Error ? error.message : "本地 indexing 失败。");
+      setIsIndexing(false);
+    }
+  }
+
   return (
     <div className="page-shell">
       <main className="app-frame">
@@ -220,6 +301,96 @@ function App() {
               <strong>{previewAnalysis.useCase}</strong>
             </div>
           </aside>
+        </section>
+
+        <section className="library-workbench" id="library">
+          <article className="panel library-panel">
+            <div className="panel-head">
+              <p className="panel-label">Local Library</p>
+              <p className="panel-title">从这台笔记本本地选图，再逐张送给 Flask 做 indexing</p>
+            </div>
+
+            <div className="library-actions">
+              <button className="primary-button" type="button" onClick={() => void handlePickFolder()}>
+                选择本地文件夹
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => void handleStartIndexing()}
+                disabled={!desktopRuntime || !selectedFolderPath || isIndexing}
+              >
+                {isIndexing ? "Indexing..." : "开始建立本地索引"}
+              </button>
+              <span className="meta-copy">
+                {desktopRuntime ? "Electron main 负责写本地 SQLite" : "当前是浏览器模式"}
+              </span>
+            </div>
+
+            <div className="library-grid">
+              <div className="summary-card">
+                <span className="summary-label">图片文件夹</span>
+                <strong>{selectedFolderPath ?? "还没有选择"}</strong>
+              </div>
+              <div className="summary-card">
+                <span className="summary-label">本地数据库</span>
+                <strong>{selectedDbPath ?? "将写入 photo_index.db"}</strong>
+              </div>
+              <div className="summary-card">
+                <span className="summary-label">运行方式</span>
+                <strong>{desktopRuntime ? "Electron desktop mode" : "Browser demo mode"}</strong>
+              </div>
+            </div>
+
+            <div className="library-note">
+              <span className="summary-label">当前策略</span>
+              <p>
+                图片保留在本地文件夹里，前端逐张把文件传给 Flask 做视觉理解和 embedding，
+                本地 SQLite 再把结果写进同一个文件夹下的 `photo_index.db`。
+              </p>
+            </div>
+
+            {indexingProgress ? (
+              <section className="indexing-progress-card">
+                <div className="indexing-progress-head">
+                  <div>
+                    <span className="summary-label">Indexing Progress</span>
+                    <p className="indexing-progress-title">
+                      {indexingProgress.completed} / {indexingProgress.total} 已处理
+                    </p>
+                  </div>
+                  <span className="analysis-token">{indexingProgress.percent}%</span>
+                </div>
+                <div className="progress-bar">
+                  <div
+                    className="progress-bar-fill"
+                    style={{ width: `${indexingProgress.percent}%` }}
+                  />
+                </div>
+                <div className="progress-stats">
+                  <span>indexed {indexingProgress.indexed}</span>
+                  <span>skipped {indexingProgress.skipped}</span>
+                  <span>failed {indexingProgress.failed}</span>
+                </div>
+                <p className="progress-current-file">
+                  当前文件: {indexingProgress.currentFile ?? "准备中"}
+                </p>
+              </section>
+            ) : null}
+
+            {indexingResult ? (
+              <div className="result-notes library-result">
+                <p>
+                  已完成 {indexingResult.total} 张图的本地 indexing，其中
+                  `indexed {indexingResult.indexed}`，`skipped {indexingResult.skipped}`，
+                  `failed {indexingResult.failed}`。
+                </p>
+                <p>SQLite 已写入: {indexingResult.dbPath}</p>
+              </div>
+            ) : null}
+
+            {indexingError ? <p className="library-error">{indexingError}</p> : null}
+          </article>
         </section>
 
         <section className="workspace">
@@ -413,13 +584,19 @@ function App() {
         <footer className="footer">
           <p>Designed as a premium AI publishing assistant, not a photo search dashboard.</p>
           <p>
-            {health.state === "connected" && health.imageLibraryDir
-              ? `Library: ${health.imageLibraryDir}`
+            {selectedDbPath
+              ? `Local DB: ${selectedDbPath}`
+              : health.state === "connected" && health.imageLibraryDir
+                ? `Library: ${health.imageLibraryDir}`
               : "Frontend demo is ready for real retrieval integration."}
           </p>
         </footer>
       </main>
-      {(isGenerating || isPending) && <div className="floating-state">curating draft...</div>}
+      {(isGenerating || isPending || isIndexing) && (
+        <div className="floating-state">
+          {isIndexing ? "indexing local library..." : "curating draft..."}
+        </div>
+      )}
     </div>
   );
 }
