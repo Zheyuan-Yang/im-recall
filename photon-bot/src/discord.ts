@@ -1,5 +1,8 @@
+import { execFile } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import {
   AttachmentBuilder,
@@ -15,6 +18,13 @@ import type { BotReply, IncomingMessage, MessagePlatformAdapter } from "./types.
 
 const MAX_ATTACHMENT_BYTES_PER_FILE = 7_500_000;
 const MAX_ATTACHMENT_BYTES_PER_MESSAGE = 7_500_000;
+const execFileAsync = promisify(execFile);
+
+type PreparedAttachment = {
+  uploadPath: string;
+  fileSize: number;
+  cleanupDir: string | null;
+};
 
 export class DiscordAdapter implements MessagePlatformAdapter {
   private readonly client: Client;
@@ -23,7 +33,7 @@ export class DiscordAdapter implements MessagePlatformAdapter {
   constructor(
     private readonly config: Pick<
       BotConfig,
-      "discordBotToken" | "discordAllowedChannelIds" | "logLevel"
+      "discordBotToken" | "discordAllowedChannelIds" | "discordSendImageWidth" | "logLevel"
     >,
   ) {
     this.client = new Client({
@@ -76,32 +86,41 @@ export class DiscordAdapter implements MessagePlatformAdapter {
       throw new Error(`Channel is not sendable: ${chatId}`);
     }
 
-    const attachmentPlan = planAttachmentBatches(reply.imagePaths);
-    const skippedNotice =
-      attachmentPlan.skippedPaths.length > 0
-        ? `\n\nSkipped ${attachmentPlan.skippedPaths.length} oversized image${attachmentPlan.skippedPaths.length === 1 ? "" : "s"} because Discord rejected the original file size.`
-        : "";
-    const primaryContent = `${reply.text.trim()}${skippedNotice}`.trim();
-
-    if (attachmentPlan.batches.length === 0) {
-      await channel.send(primaryContent || "No uploadable images were available for this result.");
-      return;
-    }
-
-    await channel.send(
-      buildMessagePayload({
-        content: primaryContent,
-        imagePaths: attachmentPlan.batches[0]!,
-      }),
+    const preparedAttachments = await prepareAttachmentsForDiscord(
+      reply.imagePaths,
+      this.config.discordSendImageWidth,
     );
 
-    for (let index = 1; index < attachmentPlan.batches.length; index += 1) {
+    try {
+      const attachmentPlan = planAttachmentBatches(preparedAttachments);
+      const skippedNotice =
+        attachmentPlan.skippedCount > 0
+          ? `\n\nSkipped ${attachmentPlan.skippedCount} oversized image${attachmentPlan.skippedCount === 1 ? "" : "s"} after resize because Discord still rejected the file size.`
+          : "";
+      const primaryContent = `${reply.text.trim()}${skippedNotice}`.trim();
+
+      if (attachmentPlan.batches.length === 0) {
+        await channel.send(primaryContent || "No uploadable images were available for this result.");
+        return;
+      }
+
       await channel.send(
         buildMessagePayload({
-          content: `More images (${index + 1}/${attachmentPlan.batches.length})`,
-          imagePaths: attachmentPlan.batches[index]!,
+          content: primaryContent,
+          attachments: attachmentPlan.batches[0]!,
         }),
       );
+
+      for (let index = 1; index < attachmentPlan.batches.length; index += 1) {
+        await channel.send(
+          buildMessagePayload({
+            content: `More images (${index + 1}/${attachmentPlan.batches.length})`,
+            attachments: attachmentPlan.batches[index]!,
+          }),
+        );
+      }
+    } finally {
+      await cleanupPreparedAttachments(preparedAttachments);
     }
   }
 
@@ -171,33 +190,99 @@ function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-function planAttachmentBatches(imagePaths: readonly string[]): {
-  batches: string[][];
-  skippedPaths: string[];
-} {
-  const batches: string[][] = [];
-  const skippedPaths: string[] = [];
-  let currentBatch: string[] = [];
-  let currentBatchBytes = 0;
+async function prepareAttachmentsForDiscord(
+  imagePaths: readonly string[],
+  targetWidth: number,
+): Promise<PreparedAttachment[]> {
+  const attachments: PreparedAttachment[] = [];
 
   for (const imagePath of imagePaths) {
-    const fileSize = fs.statSync(imagePath).size;
-    if (fileSize > MAX_ATTACHMENT_BYTES_PER_FILE) {
-      skippedPaths.push(imagePath);
+    attachments.push(await prepareAttachment(imagePath, targetWidth));
+  }
+
+  return attachments;
+}
+
+async function prepareAttachment(
+  imagePath: string,
+  targetWidth: number,
+): Promise<PreparedAttachment> {
+  const tempDir = await fs.promises.mkdtemp(
+    path.join(os.tmpdir(), "memolens-discord-"),
+  );
+  const extension = path.extname(imagePath) || ".jpg";
+  const baseName = path.basename(imagePath, extension);
+  const uploadPath = path.join(tempDir, `${baseName}-w${targetWidth}${extension}`);
+
+  try {
+    await execFileAsync("sips", [
+      "--resampleWidth",
+      String(targetWidth),
+      imagePath,
+      "--out",
+      uploadPath,
+    ]);
+  } catch {
+    await fs.promises.rm(tempDir, { force: true, recursive: true });
+    const originalStat = await fs.promises.stat(imagePath);
+    return {
+      uploadPath: imagePath,
+      fileSize: originalStat.size,
+      cleanupDir: null,
+    };
+  }
+
+  const stat = await fs.promises.stat(uploadPath);
+  return {
+    uploadPath,
+    fileSize: stat.size,
+    cleanupDir: tempDir,
+  };
+}
+
+async function cleanupPreparedAttachments(
+  attachments: readonly PreparedAttachment[],
+): Promise<void> {
+  const cleanupDirs = [
+    ...new Set(
+      attachments
+        .map((item) => item.cleanupDir)
+        .filter((cleanupDir): cleanupDir is string => cleanupDir !== null),
+    ),
+  ];
+  await Promise.all(
+    cleanupDirs.map((cleanupDir) =>
+      fs.promises.rm(cleanupDir, { force: true, recursive: true }),
+    ),
+  );
+}
+
+function planAttachmentBatches(attachments: readonly PreparedAttachment[]): {
+  batches: PreparedAttachment[][];
+  skippedCount: number;
+} {
+  const batches: PreparedAttachment[][] = [];
+  let skippedCount = 0;
+  let currentBatch: PreparedAttachment[] = [];
+  let currentBatchBytes = 0;
+
+  for (const attachment of attachments) {
+    if (attachment.fileSize > MAX_ATTACHMENT_BYTES_PER_FILE) {
+      skippedCount += 1;
       continue;
     }
 
     if (
       currentBatch.length > 0 &&
-      currentBatchBytes + fileSize > MAX_ATTACHMENT_BYTES_PER_MESSAGE
+      currentBatchBytes + attachment.fileSize > MAX_ATTACHMENT_BYTES_PER_MESSAGE
     ) {
       batches.push(currentBatch);
       currentBatch = [];
       currentBatchBytes = 0;
     }
 
-    currentBatch.push(imagePath);
-    currentBatchBytes += fileSize;
+    currentBatch.push(attachment);
+    currentBatchBytes += attachment.fileSize;
   }
 
   if (currentBatch.length > 0) {
@@ -206,13 +291,13 @@ function planAttachmentBatches(imagePaths: readonly string[]): {
 
   return {
     batches,
-    skippedPaths,
+    skippedCount,
   };
 }
 
 function buildMessagePayload(input: {
   content: string;
-  imagePaths: readonly string[];
+  attachments: readonly PreparedAttachment[];
 }): {
   content?: string;
   files: AttachmentBuilder[];
@@ -221,10 +306,10 @@ function buildMessagePayload(input: {
     content?: string;
     files: AttachmentBuilder[];
   } = {
-    files: input.imagePaths.map(
-      (imagePath) =>
-        new AttachmentBuilder(imagePath, {
-          name: path.basename(imagePath),
+    files: input.attachments.map(
+      (attachment) =>
+        new AttachmentBuilder(attachment.uploadPath, {
+          name: path.basename(attachment.uploadPath),
         }),
     ),
   };

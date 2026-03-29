@@ -23,6 +23,8 @@ export async function startBot(): Promise<void> {
     backendBaseUrl: config.backendBaseUrl,
     imageLibraryDir: config.imageLibraryDir,
     dbPath: config.dbPath,
+    backendSendPathOverrides: config.backendSendPathOverrides,
+    discordSendImageWidth: config.discordSendImageWidth,
     backendRequestTimeoutMs: config.backendRequestTimeoutMs,
     allowedChannelCount: config.discordAllowedChannelIds.length,
   });

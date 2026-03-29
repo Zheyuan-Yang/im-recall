@@ -5,12 +5,26 @@ export class BackendClient {
   constructor(
     private readonly config: Pick<
       BotConfig,
-      "backendBaseUrl" | "requestTimeoutMs" | "imageLibraryDir" | "dbPath"
+      | "backendBaseUrl"
+      | "requestTimeoutMs"
+      | "imageLibraryDir"
+      | "dbPath"
+      | "backendSendPathOverrides"
     >,
   ) {}
 
   async queryPhotos(input: QueryPhotosInput): Promise<RetrievalResponse> {
     const url = `${this.config.backendBaseUrl}/v1/retrieval/query`;
+    const payload: Record<string, unknown> = {
+      text: input.text,
+      top_k: input.topK,
+    };
+
+    if (this.config.backendSendPathOverrides) {
+      payload.db_path = this.config.dbPath;
+      payload.image_library_dir = this.config.imageLibraryDir;
+    }
+
     let response: Response;
     try {
       response = await fetch(url, {
@@ -18,12 +32,7 @@ export class BackendClient {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          text: input.text,
-          top_k: input.topK,
-          db_path: this.config.dbPath,
-          image_library_dir: this.config.imageLibraryDir,
-        }),
+        body: JSON.stringify(payload),
         signal: AbortSignal.timeout(this.config.requestTimeoutMs),
       });
     } catch (error) {

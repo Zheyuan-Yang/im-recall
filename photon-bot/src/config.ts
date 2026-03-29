@@ -7,7 +7,9 @@ export type LogLevel = "debug" | "info" | "warn" | "error";
 export type BotConfig = {
   backendBaseUrl: string;
   imageLibraryDir: string;
-  dbPath: string;
+  dbPath: string | null;
+  backendSendPathOverrides: boolean;
+  discordSendImageWidth: number;
   discordBotToken: string;
   discordAllowedChannelIds: string[];
   backendRequestTimeoutMs: number;
@@ -37,10 +39,22 @@ export function loadConfig(): BotConfig {
     process.env.IMAGE_LIBRARY_DIR ?? defaultImageLibraryDir,
     "IMAGE_LIBRARY_DIR",
   );
-  const dbPath = readFilePath(
-    process.env.SQLITE_DB_PATH ?? path.join(imageLibraryDir, "photo_index.db"),
-    "SQLITE_DB_PATH",
+  const backendSendPathOverrides = readBoolean(
+    process.env.BACKEND_SEND_PATH_OVERRIDES,
+    false,
   );
+  const discordSendImageWidth = readInteger(
+    process.env.DISCORD_SEND_IMAGE_WIDTH,
+    512,
+    "DISCORD_SEND_IMAGE_WIDTH",
+    64,
+  );
+  const dbPath = backendSendPathOverrides
+    ? readFilePath(
+        process.env.SQLITE_DB_PATH ?? path.join(imageLibraryDir, "photo_index.db"),
+        "SQLITE_DB_PATH",
+      )
+    : readOptionalFilePath(process.env.SQLITE_DB_PATH);
   const discordBotToken = readRequiredString(process.env.DISCORD_BOT_TOKEN, "DISCORD_BOT_TOKEN");
   const discordAllowedChannelIds = readStringList(process.env.DISCORD_ALLOWED_CHANNEL_IDS);
   const backendRequestTimeoutMs = readInteger(
@@ -75,6 +89,8 @@ export function loadConfig(): BotConfig {
     backendBaseUrl,
     imageLibraryDir,
     dbPath,
+    backendSendPathOverrides,
+    discordSendImageWidth,
     discordBotToken,
     discordAllowedChannelIds,
     backendRequestTimeoutMs,
@@ -154,6 +170,18 @@ function readFilePath(value: string, key: string): string {
   return resolved;
 }
 
+function readOptionalFilePath(value: string | undefined): string | null {
+  if (value === undefined || !value.trim()) {
+    return null;
+  }
+
+  const resolved = path.resolve(value);
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+    return null;
+  }
+  return resolved;
+}
+
 function readRequiredString(rawValue: string | undefined, key: string): string {
   const value = rawValue?.trim();
   if (!value) {
@@ -191,6 +219,13 @@ function readInteger(
     throw new Error(`${key} must be <= ${max}.`);
   }
   return value;
+}
+
+function readBoolean(rawValue: string | undefined, fallback: boolean): boolean {
+  if (rawValue === undefined) {
+    return fallback;
+  }
+  return ["1", "true", "yes", "on"].includes(rawValue.trim().toLowerCase());
 }
 
 function isLogLevel(value: string): value is LogLevel {
