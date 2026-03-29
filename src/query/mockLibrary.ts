@@ -56,8 +56,8 @@ const PHOTO_SEEDS: MockPhotoSeed[] = [
   {
     id: "photo-window-pause",
     title: "Window Pause",
-    summary: "柔和的窗边光线，让人看起来像正在认真度过普通的一天。",
-    location: "洛杉矶 · Silver Lake",
+    summary: "Soft window light makes the scene feel like an ordinary day worth keeping.",
+    location: "Los Angeles · Silver Lake",
     takenAt: "2026-02-14",
     slot: "cover",
     concepts: ["soft", "daily", "portrait", "window", "quiet", "losangeles"],
@@ -73,8 +73,8 @@ const PHOTO_SEEDS: MockPhotoSeed[] = [
   {
     id: "photo-coffee-counter",
     title: "Coffee Pause",
-    summary: "杯子、桌角和一点留白，很适合当作图集里的停顿。",
-    location: "洛杉矶 · Echo Park",
+    summary: "A cup, a tabletop edge, and a little negative space make a clean pause inside the set.",
+    location: "Los Angeles · Echo Park",
     takenAt: "2026-02-17",
     slot: "detail",
     concepts: ["coffee", "soft", "detail", "daily", "quiet", "losangeles"],
@@ -90,8 +90,8 @@ const PHOTO_SEEDS: MockPhotoSeed[] = [
   {
     id: "photo-neighborhood-walk",
     title: "Neighborhood Walk",
-    summary: "街区散步的背影和树影，画面很轻，但有行进感。",
-    location: "洛杉矶 · Los Feliz",
+    summary: "Tree shadows and a walking silhouette keep the frame light while still moving the story forward.",
+    location: "Los Angeles · Los Feliz",
     takenAt: "2026-02-19",
     slot: "walk",
     concepts: ["walk", "daily", "city", "quiet", "light", "losangeles"],
@@ -107,8 +107,8 @@ const PHOTO_SEEDS: MockPhotoSeed[] = [
   {
     id: "photo-evening-tram",
     title: "Evening Rail",
-    summary: "一点傍晚蓝调和城市线条，适合给图集加一个呼吸位。",
-    location: "洛杉矶 · Downtown",
+    summary: "A little blue-hour calm and a city line help the set breathe.",
+    location: "Los Angeles · Downtown",
     takenAt: "2026-01-31",
     slot: "city",
     concepts: ["city", "evening", "quiet", "blue", "travel", "losangeles"],
@@ -124,8 +124,8 @@ const PHOTO_SEEDS: MockPhotoSeed[] = [
   {
     id: "photo-film-portrait",
     title: "Soft Portrait",
-    summary: "近景人物有一点胶片气息，像记忆里会留下来的那张。",
-    location: "洛杉矶 · Koreatown",
+    summary: "A close portrait with a hint of film texture, the kind of frame that tends to stay in memory.",
+    location: "Los Angeles · Koreatown",
     takenAt: "2026-02-11",
     slot: "portrait",
     concepts: ["portrait", "soft", "memory", "daily", "person", "losangeles"],
@@ -141,8 +141,8 @@ const PHOTO_SEEDS: MockPhotoSeed[] = [
   {
     id: "photo-stair-light",
     title: "Light on Stairs",
-    summary: "简单的结构和落下来的光线，让整组画面更干净。",
-    location: "洛杉矶 · Pasadena",
+    summary: "Simple geometry and falling light make the whole set feel cleaner.",
+    location: "Los Angeles · Pasadena",
     takenAt: "2026-02-08",
     slot: "light",
     concepts: ["light", "detail", "quiet", "architecture", "daily", "losangeles"],
@@ -158,8 +158,8 @@ const PHOTO_SEEDS: MockPhotoSeed[] = [
   {
     id: "photo-house-plants",
     title: "Morning Plants",
-    summary: "植物和晨光会让结果更有生活感，也不至于太单调。",
-    location: "洛杉矶 · Highland Park",
+    summary: "Plants and morning light keep the result grounded in everyday life without feeling repetitive.",
+    location: "Los Angeles · Highland Park",
     takenAt: "2026-02-05",
     slot: "quiet",
     concepts: ["home", "soft", "quiet", "daily", "light", "losangeles"],
@@ -175,8 +175,8 @@ const PHOTO_SEEDS: MockPhotoSeed[] = [
   {
     id: "photo-diner-candid",
     title: "Late Lunch",
-    summary: "带一点人物互动的生活瞬间，会让图集不只是风景。",
-    location: "洛杉矶 · Glendale",
+    summary: "A candid human moment keeps the set from becoming all scenery.",
+    location: "Los Angeles · Glendale",
     takenAt: "2026-02-03",
     slot: "candid",
     concepts: ["daily", "friends", "person", "warm", "city", "losangeles"],
@@ -192,8 +192,8 @@ const PHOTO_SEEDS: MockPhotoSeed[] = [
   {
     id: "photo-coast-drive",
     title: "Coastline Drive",
-    summary: "如果 prompt 带一点放松或回忆感，这张能拉开叙事空间。",
-    location: "马里布 · Pacific Coast Highway",
+    summary: "If the prompt leans relaxed or reflective, this frame helps open up the story.",
+    location: "Malibu · Pacific Coast Highway",
     takenAt: "2026-01-24",
     slot: "cover",
     concepts: ["coast", "travel", "memory", "soft", "blue", "sunset"],
@@ -209,8 +209,8 @@ const PHOTO_SEEDS: MockPhotoSeed[] = [
   {
     id: "photo-sea-breeze",
     title: "Sea Breeze",
-    summary: "偏安静的海边细节，适合放在中后段给情绪降一点速。",
-    location: "圣塔莫尼卡 · Ocean Front",
+    summary: "A quieter coastal detail that works well later in the set to slow the mood down.",
+    location: "Santa Monica · Ocean Front",
     takenAt: "2026-01-22",
     slot: "detail",
     concepts: ["coast", "quiet", "detail", "light", "memory", "travel"],
@@ -226,8 +226,8 @@ const PHOTO_SEEDS: MockPhotoSeed[] = [
   {
     id: "photo-golden-hour-road",
     title: "Golden Hour Road",
-    summary: "有一点远方感，但不会太满，适合做叙事转场。",
-    location: "橙县 · Laguna",
+    summary: "It suggests distance without feeling overloaded, which makes it useful as a transition frame.",
+    location: "Orange County · Laguna",
     takenAt: "2026-01-18",
     slot: "walk",
     concepts: ["travel", "sunset", "warm", "light", "road", "memory"],
@@ -243,8 +243,8 @@ const PHOTO_SEEDS: MockPhotoSeed[] = [
   {
     id: "photo-bookstore",
     title: "Bookstore Quiet",
-    summary: "偏静物和空间感的镜头，能让结果像被认真编排过。",
-    location: "洛杉矶 · Arts District",
+    summary: "A still-life leaning frame with spatial calm helps the result feel more intentionally edited.",
+    location: "Los Angeles · Arts District",
     takenAt: "2026-02-12",
     slot: "quiet",
     concepts: ["quiet", "daily", "detail", "warm", "city", "losangeles"],
@@ -260,8 +260,8 @@ const PHOTO_SEEDS: MockPhotoSeed[] = [
   {
     id: "photo-rooftop-night",
     title: "Roofline Blue",
-    summary: "夜色不吵，只留下城市的轮廓和一点风。",
-    location: "洛杉矶 · Hollywood",
+    summary: "The night stays restrained, leaving only the city outline and a little wind.",
+    location: "Los Angeles · Hollywood",
     takenAt: "2026-02-02",
     slot: "city",
     concepts: ["city", "quiet", "blue", "night", "memory", "losangeles"],
@@ -277,8 +277,8 @@ const PHOTO_SEEDS: MockPhotoSeed[] = [
   {
     id: "photo-friends-picnic",
     title: "Picnic Hour",
-    summary: "有朋友但不喧闹，适合“热闹一点点但别太满”的请求。",
-    location: "洛杉矶 · Griffith Park",
+    summary: "There are people here, but not too much noise, which suits a prompt asking for warmth without chaos.",
+    location: "Los Angeles · Griffith Park",
     takenAt: "2026-02-21",
     slot: "candid",
     concepts: ["friends", "warm", "daily", "soft", "nature", "losangeles"],
@@ -294,8 +294,8 @@ const PHOTO_SEEDS: MockPhotoSeed[] = [
   {
     id: "photo-sunshade",
     title: "Sunshade Detail",
-    summary: "明暗对比比较轻，适合把整组结果收得更高级一些。",
-    location: "洛杉矶 · Venice",
+    summary: "The contrast stays gentle, which helps the whole edit feel a little more refined.",
+    location: "Los Angeles · Venice",
     takenAt: "2026-01-28",
     slot: "detail",
     concepts: ["detail", "light", "soft", "architecture", "coast", "losangeles"],
@@ -311,8 +311,8 @@ const PHOTO_SEEDS: MockPhotoSeed[] = [
   {
     id: "photo-courtyard",
     title: "Courtyard Noon",
-    summary: "空间、树影和中性配色，很适合中段承接前后画面。",
-    location: "洛杉矶 · Pasadena",
+    summary: "Space, tree shade, and neutral tones make it a strong middle frame that bridges what comes before and after.",
+    location: "Los Angeles · Pasadena",
     takenAt: "2026-02-07",
     slot: "light",
     concepts: ["architecture", "light", "quiet", "daily", "city", "losangeles"],
@@ -340,14 +340,13 @@ export const PHOTO_LIBRARY: PhotoAsset[] = PHOTO_SEEDS.map((photo) => ({
 }));
 
 export const PROMPT_PRESETS: PromptPreset[] = [
-  { label: "朋友圈图集", query: "适合发朋友圈" },
-  { label: "温柔一点", query: "整体温柔一点" },
-  { label: "日常感", query: "有一点认真生活的日常感" },
-  { label: "某个人", query: "以某个人为主角" },
-  { label: "最近半年", query: "从最近半年里选" },
-  { label: "别太热闹", query: "不要太热闹" },
+  { label: "Post-ready", query: "suitable for posting" },
+  { label: "Softer", query: "make the tone softer" },
+  { label: "Everyday", query: "with a grounded everyday mood" },
+  { label: "One person", query: "centered on one person" },
+  { label: "Recent", query: "from the last six months" },
+  { label: "Calmer", query: "not too busy" },
 ];
 
 export const INITIAL_PROMPT =
-  "帮我从最近的照片里挑 9 张适合发朋友圈的，整体温柔一点，有日常感，不要太热闹，再给我一句文案。";
-
+  "Pick 9 photos from my recent library that feel gentle, grounded, and suitable for posting, then give me a caption.";

@@ -112,9 +112,9 @@ function fallbackNotes(images: RetrievalApiImage[]): string[] {
 
   const first = images[0];
   return [
-    `结果从 ${first.filename} 这类更强的主画面起手，先把主题立住。`,
-    "中段会混入细节和空间镜头，避免整组都停留在一种取景距离。",
-    "尾段保留更安静的画面，让结果更像一组真的准备发布的图集。",
+    `The set opens with a stronger lead frame like ${first.filename} to establish the theme quickly.`,
+    "The middle introduces detail and space so the sequence does not stay stuck at one viewing distance.",
+    "The ending keeps a quieter frame to make the result feel more like a real post-ready set.",
   ];
 }
 
@@ -160,10 +160,10 @@ export async function fetchDraftFromBackend(
     prompt,
     title:
       resolvedTitle ??
-      (variant === "soft" ? "把普通日子放轻一点" : "认真生活的最近"),
+      (variant === "soft" ? "Make the ordinary feel lighter" : "Recent life, arranged with intent"),
     caption:
       resolvedCaption ??
-      "把最近的照片重新排成一组之后，情绪和顺序都会变得更清楚一些。",
+      "Reordering recent photos into a sequence makes the mood and pacing feel much clearer.",
     candidateCount: payload.candidate_count ?? payload.data.length,
     selectedCount: selected.length,
     selected,

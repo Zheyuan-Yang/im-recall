@@ -39,8 +39,8 @@ const IDLE_GENERATION_PROGRESS: DraftGenerationProgressState = {
   phase: "idle",
   percent: 0,
   stepIndex: 0,
-  title: "等待开始",
-  detail: "输入一句话后，系统会先理解需求，再检索、精选，最后生成可直接发的照片组。",
+  title: "Waiting to start",
+  detail: "Enter a prompt and MemoLens will interpret it, search the library, curate the set, and prepare a ready-to-use draft.",
 };
 
 function sleep(duration: number): Promise<void> {
@@ -52,27 +52,27 @@ function sleep(duration: number): Promise<void> {
 function getIndexingPhaseLabel(phase: DesktopIndexingPhase): string {
   switch (phase) {
     case "pausing":
-      return "正在暂停";
+      return "Pausing";
     case "paused":
-      return "已暂停";
+      return "Paused";
     case "finalizing":
-      return "收尾中";
+      return "Finalizing";
     case "completed":
-      return "已完成";
+      return "Completed";
     case "running":
     default:
-      return "处理中";
+      return "Running";
   }
 }
 
 function getIndexingPhaseMessage(progress: DesktopIndexingProgress): string | null {
   switch (progress.phase) {
     case "pausing":
-      return "会在当前这张图片处理完成后暂停。";
+      return "The job will pause after the current image finishes.";
     case "paused":
-      return "任务已暂停，继续后会从下一张图片接着跑。";
+      return "The job is paused and will continue from the next image.";
     case "finalizing":
-      return "所有图片都已处理完成，正在写入最后结果。";
+      return "All images are processed. Writing the final result now.";
     default:
       return null;
   }
@@ -81,12 +81,12 @@ function getIndexingPhaseMessage(progress: DesktopIndexingProgress): string | nu
 function getGenerationPhaseLabel(phase: DraftGenerationPhase): string {
   switch (phase) {
     case "completed":
-      return "已完成";
+      return "Completed";
     case "running":
-      return "生成中";
+      return "Generating";
     case "idle":
     default:
-      return "待开始";
+      return "Idle";
   }
 }
 
@@ -158,6 +158,7 @@ function App() {
   const [activeVariant, setActiveVariant] = useState<ToneVariant>("balanced");
   const [isGenerating, setIsGenerating] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [activePhotoId, setActivePhotoId] = useState<string | null>(draft.selected[0]?.id ?? null);
   const [health, setHealth] = useState<BackendHealth>({
     state: "checking",
     message: "Checking local backend",
@@ -185,6 +186,15 @@ function App() {
   );
   const activeResultDraft =
     health.state === "connected" && !hasCompletedGeneration ? null : displayDraft;
+  const activePhoto =
+    activeResultDraft?.selected.find((photo) => photo.id === activePhotoId) ??
+    activeResultDraft?.selected[0] ??
+    null;
+  const previewPhotos = activeResultDraft?.selected.slice(0, 3) ?? [];
+  const libraryFolderLabel = selectedFolderPath ?? health.imageLibraryDir ?? "No folder selected";
+  const libraryDbLabel = selectedDbPath ?? health.dbPath ?? "No database yet";
+  const runtimeLabel = desktopRuntime ? "Desktop" : electronShell ? "Shell" : "Browser";
+  const heroSignals = [previewAnalysis.focus, previewAnalysis.toneLabel, previewAnalysis.timeHint];
 
   function clearGenerationProgressTimer(): void {
     if (generationProgressTimerRef.current !== null) {
@@ -215,7 +225,7 @@ function App() {
         return {
           ...current,
           percent: nextPercent,
-          detail: "正在把候选照片整理成一组更顺的结果，马上给你最终版本。",
+          detail: "Refining the candidate set into a cleaner sequence. Final result is almost ready.",
         };
       });
     }, 280);
@@ -279,6 +289,19 @@ function App() {
 
   useEffect(() => () => clearGenerationProgressTimer(), []);
 
+  useEffect(() => {
+    if (!activeResultDraft?.selected.length) {
+      setActivePhotoId(null);
+      return;
+    }
+    setActivePhotoId((current) => {
+      if (current && activeResultDraft.selected.some((photo) => photo.id === current)) {
+        return current;
+      }
+      return activeResultDraft.selected[0].id;
+    });
+  }, [activeResultDraft?.id, activeResultDraft?.selected.length]);
+
   async function runGeneration(variant: ToneVariant): Promise<void> {
     const normalizedPrompt = prompt.trim() || INITIAL_PROMPT;
     const runId = runIdRef.current + 1;
@@ -319,11 +342,11 @@ function App() {
           libraryRootPath: selectedFolderPath,
         });
         if (nextDraft === null) {
-          setGenerationError("本地库里暂时没有可展示的检索结果，请先确认已经完成 indexing。");
+          setGenerationError("No visible retrieval result came back from the local library. Make sure indexing has finished.");
         }
       } catch (error) {
         setGenerationError(
-          error instanceof Error ? error.message : "生成照片组失败，暂时无法从本地库取回结果。",
+          error instanceof Error ? error.message : "Draft generation failed and no result could be loaded from the local library.",
         );
         nextDraft = null;
       }
@@ -344,8 +367,8 @@ function App() {
         phase: "idle",
         percent: 0,
         stepIndex: 0,
-        title: "没有生成出可展示结果",
-        detail: "先检查本地 indexing 是否完成，或者看一下上面的错误提示。",
+        title: "No result available",
+        detail: "Check whether local indexing has finished, or review the error message above.",
       });
       setPipeline(createPipelineSteps(null, 0));
       setIsGenerating(false);
@@ -357,11 +380,12 @@ function App() {
       phase: "completed",
       percent: 100,
       stepIndex: PIPELINE_LENGTH,
-      title: "照片组已生成",
-      detail: "结果已经准备好，可以直接查看、复制文案，或者继续再来一版。",
+      title: "Draft ready",
+      detail: "Your result is ready to review, copy, or refine again.",
     });
     setHasCompletedGeneration(true);
     setDraft(nextDraft);
+    setActivePhotoId(nextDraft.selected[0]?.id ?? null);
     setPipeline(createPipelineSteps(null));
     setIsGenerating(false);
   }
@@ -389,7 +413,7 @@ function App() {
         return currentPrompt;
       }
       const trimmed = currentPrompt.trim().replace(/[。.!?？]+$/, "");
-      return `${trimmed}，${query}`;
+      return `${trimmed}, ${query}`;
     });
   }
 
@@ -409,7 +433,7 @@ function App() {
 
   async function handleStartIndexing(): Promise<void> {
     if (!selectedFolderPath) {
-      setIndexingError("请先选择一个本地图像文件夹。");
+      setIndexingError("Pick a local image folder first.");
       return;
     }
 
@@ -428,7 +452,7 @@ function App() {
         apiBase: apiBase || "http://127.0.0.1:5000",
       });
       if (result === null) {
-        setIndexingError("当前浏览器模式不支持本地 SQLite，请使用 Electron 运行。");
+        setIndexingError("This browser mode cannot write local SQLite. Please run the Electron app.");
         setIsIndexing(false);
         return;
       }
@@ -440,7 +464,7 @@ function App() {
         dbPath: result.dbPath,
       }));
     } catch (error) {
-      setIndexingError(error instanceof Error ? error.message : "本地 indexing 失败。");
+      setIndexingError(error instanceof Error ? error.message : "Local indexing failed.");
       setIsIndexing(false);
     }
   }
@@ -451,10 +475,10 @@ function App() {
     try {
       const paused = await pauseLocalIndexing();
       if (paused === null) {
-        setIndexingError("当前浏览器模式不支持暂停本地 indexing，请使用 Electron 运行。");
+        setIndexingError("This browser mode cannot pause local indexing. Please run the Electron app.");
       }
     } catch (error) {
-      setIndexingError(error instanceof Error ? error.message : "暂停 indexing 失败。");
+      setIndexingError(error instanceof Error ? error.message : "Pausing indexing failed.");
     } finally {
       setIsIndexingControlPending(false);
     }
@@ -466,10 +490,10 @@ function App() {
     try {
       const resumed = await resumeLocalIndexing();
       if (resumed === null) {
-        setIndexingError("当前浏览器模式不支持继续本地 indexing，请使用 Electron 运行。");
+        setIndexingError("This browser mode cannot resume local indexing. Please run the Electron app.");
       }
     } catch (error) {
-      setIndexingError(error instanceof Error ? error.message : "继续 indexing 失败。");
+      setIndexingError(error instanceof Error ? error.message : "Resuming indexing failed.");
     } finally {
       setIsIndexingControlPending(false);
     }
@@ -482,226 +506,207 @@ function App() {
   const indexingPhaseMessage = indexingProgress ? getIndexingPhaseMessage(indexingProgress) : null;
 
   return (
-    <div className="page-shell">
-      <main className="app-frame">
-        <header className="topbar">
-          <div className="brand-block">
-            <div className="brand-mark">M</div>
-            <div>
-              <p className="brand-name">MemoLens</p>
-              <p className="brand-meta">AI Photo Curator</p>
-            </div>
-          </div>
-          <nav className="nav-links" aria-label="Primary">
-            <a href="#composer">Product</a>
-            <a href="#pipeline">Flow</a>
-            <a href="#result">Result</a>
-          </nav>
-          <div className="topbar-actions">
-            <span className={`health-pill health-${health.state}`}>
-              <span className="status-dot" />
-              {health.message}
-            </span>
-            <a className="primary-button" href="#composer">
-              Try draft studio
-            </a>
-          </div>
-        </header>
+    <div className="app-shell">
+      <header className="top-nav">
+        <a className="brand" href="#hero" aria-label="MemoLens home">
+          <span className="brand-mark">M</span>
+          <span className="brand-text">
+            MemoLens
+            <small>AI Photo Curator</small>
+          </span>
+        </a>
 
-        <section className="hero">
+        <nav className="nav-links" aria-label="Primary">
+          <a href="#library">Library</a>
+          <a href="#compose">Compose</a>
+          <a href="#process">Process</a>
+          <a href="#result">Result</a>
+        </nav>
+
+        <div className="nav-status">
+          <span className={`status-pill status-${health.state}`}>{health.message}</span>
+          <span className="status-pill">{runtimeLabel}</span>
+        </div>
+      </header>
+
+      <main className="page-shell">
+        <section className="hero-section" id="hero">
           <div className="hero-copy">
-            <p className="eyebrow">Ready-to-post visual stories</p>
+            <p className="eyebrow">Local Photo Curator</p>
             <h1>
-              把你的照片库，
-              <span>整理成一组可以直接发出去的故事。</span>
+              Turn a loose feeling
+              <span> into a polished photo set.</span>
             </h1>
-            <p className="hero-description">
-              用一句话描述想要的感觉。MemoLens
-              会理解语气、检索图片、精选顺序，再补上一句已经足够像成品的文案。
-            </p>
+            <div className="hero-chip-row">
+              {heroSignals.map((signal) => (
+                <span key={signal} className="status-pill">
+                  {signal}
+                </span>
+              ))}
+            </div>
           </div>
 
-          <aside className="hero-summary">
-            <div className="summary-card">
-              <span className="summary-label">当前偏向</span>
-              <strong>{previewAnalysis.focus}</strong>
-            </div>
-            <div className="summary-card">
-              <span className="summary-label">结果语气</span>
-              <strong>{previewAnalysis.toneLabel}</strong>
-            </div>
-            <div className="summary-card">
-              <span className="summary-label">使用场景</span>
-              <strong>{previewAnalysis.useCase}</strong>
-            </div>
-          </aside>
-        </section>
-
-        <section className="library-workbench" id="library">
-          <article className="panel library-panel">
-            <div className="panel-head">
-              <p className="panel-label">Local Library</p>
-              <p className="panel-title">从这台笔记本本地选图，再逐张送给 Flask 做 indexing</p>
-            </div>
-
-            <div className="library-actions">
-              <button className="primary-button" type="button" onClick={() => void handlePickFolder()}>
-                选择本地文件夹
-              </button>
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={() => void handleStartIndexing()}
-                disabled={!desktopRuntime || !selectedFolderPath || isIndexing}
-              >
-                {isIndexing ? "Indexing..." : "开始建立本地索引"}
-              </button>
-              {isIndexing && indexingProgress && canControlIndexing ? (
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() =>
-                    void (canResumeIndexing ? handleResumeIndexing() : handlePauseIndexing())
-                  }
-                  disabled={isIndexingControlPending}
-                >
-                  {canResumeIndexing ? "继续 indexing" : "暂停 indexing"}
-                </button>
-              ) : null}
-              <span className="meta-copy">
-                {desktopRuntime
-                  ? "Electron main 负责写本地 SQLite"
-                  : electronShell
-                    ? "Electron 已启动，但本地桥接还没有挂上"
-                    : "当前是浏览器模式"}
+          <aside className="hero-preview-card">
+            <div className="hero-preview-header">
+              <div>
+                <p className="eyebrow">Current draft</p>
+                <h2>{activeResultDraft?.title ?? "Waiting for the first draft"}</h2>
+              </div>
+              <span className="status-pill">
+                {activeResultDraft ? `${activeResultDraft.selectedCount} selected` : "0 selected"}
               </span>
             </div>
 
-            <div className="library-grid">
-              <div className="summary-card">
-                <span className="summary-label">图片文件夹</span>
-                <strong>{selectedFolderPath ?? "还没有选择"}</strong>
-              </div>
-              <div className="summary-card">
-                <span className="summary-label">本地数据库</span>
-                <strong>{selectedDbPath ?? "将写入 photo_index.db"}</strong>
-              </div>
-              <div className="summary-card">
-                <span className="summary-label">运行方式</span>
-                <strong>
-                  {desktopRuntime
-                    ? "Electron desktop mode"
-                    : electronShell
-                      ? "Electron shell without bridge"
-                      : "Browser demo mode"}
-                </strong>
-              </div>
-            </div>
-
-            <div className="library-note">
-              <span className="summary-label">当前策略</span>
-              <p>
-                图片保留在本地文件夹里，前端逐张把文件传给 Flask 做视觉理解和 embedding，
-                本地 SQLite 再把结果写进同一个文件夹下的 `photo_index.db`。
-              </p>
-            </div>
-
-            {indexingProgress ? (
-              <section className="indexing-progress-card">
-                <div className="indexing-progress-head">
-                  <div>
-                    <span className="summary-label">Indexing Progress</span>
-                    <p className="indexing-progress-title">
-                      {indexingProgress.completed} / {indexingProgress.total} 已处理
-                    </p>
-                  </div>
-                  <div className="indexing-progress-meta">
-                    <span className="analysis-token progress-phase-token">
-                      {getIndexingPhaseLabel(indexingProgress.phase)}
-                    </span>
-                    <span className="analysis-token">{indexingProgress.percent}%</span>
-                  </div>
-                </div>
-                <div className="progress-bar">
+            {previewPhotos.length > 0 ? (
+              <div className="hero-preview-stack">
+                {previewPhotos.map((photo, index) => (
                   <div
-                    className="progress-bar-fill"
-                    style={{ width: `${indexingProgress.percent}%` }}
-                  />
-                </div>
-                <div className="progress-stats">
-                  <span>indexed {indexingProgress.indexed}</span>
-                  <span>skipped {indexingProgress.skipped}</span>
-                  <span>failed {indexingProgress.failed}</span>
-                </div>
-                <p className="progress-current-file">
-                  当前文件: {indexingProgress.currentFile ?? "准备中"}
-                </p>
-                {indexingPhaseMessage ? (
-                  <p className="progress-status-note">{indexingPhaseMessage}</p>
-                ) : null}
-              </section>
-            ) : null}
-
-            {indexingResult ? (
-              <div className="result-notes library-result">
-                <p>
-                  已完成 {indexingResult.total} 张图的本地 indexing，其中
-                  `indexed {indexingResult.indexed}`，`skipped {indexingResult.skipped}`，
-                  `failed {indexingResult.failed}`。
-                </p>
-                <p>SQLite 已写入: {indexingResult.dbPath}</p>
+                    key={photo.id}
+                    className="mini-frame"
+                    style={{
+                      rotate: `${(index - 1) * 4}deg`,
+                      translate: `${index * 14}px ${index * 8}px`,
+                      zIndex: previewPhotos.length - index,
+                      backgroundColor: photo.surfaceTint,
+                    }}
+                  >
+                    <img src={photo.imageUrl} alt={photo.title} />
+                    <span>{photo.title}</span>
+                  </div>
+                ))}
               </div>
-            ) : null}
-
-            {indexingError ? <p className="library-error">{indexingError}</p> : null}
-          </article>
+            ) : (
+              <div className="empty-card hero-empty-card">
+                <strong>Pick a library, then generate a draft.</strong>
+                <span>The current draft preview will appear here.</span>
+              </div>
+            )}
+          </aside>
         </section>
 
-        <section className="workspace">
-          <article className="panel composer-panel" id="composer">
-            <div className="panel-head">
-              <p className="panel-label">Prompt</p>
-              <p className="panel-title">一句话描述你想发的那组照片</p>
+        <section className="section-block library-section" id="library">
+          <div className="section-heading compact-heading">
+            <p className="eyebrow">Library</p>
+            <h2>Local library</h2>
+          </div>
+
+          <div className="toolbar-row">
+            <button className="primary-button" type="button" onClick={() => void handlePickFolder()}>
+              Choose folder
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => void handleStartIndexing()}
+              disabled={!desktopRuntime || !selectedFolderPath || isIndexing}
+            >
+              {isIndexing ? "Indexing..." : "Start indexing"}
+            </button>
+            {isIndexing && indexingProgress && canControlIndexing ? (
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() =>
+                  void (canResumeIndexing ? handleResumeIndexing() : handlePauseIndexing())
+                }
+                disabled={isIndexingControlPending}
+              >
+                {canResumeIndexing ? "Resume" : "Pause"}
+              </button>
+            ) : null}
+          </div>
+
+          <div className="meta-pills">
+            <span className="meta-pill path-pill" title={libraryFolderLabel}>
+              {libraryFolderLabel}
+            </span>
+            <span className="meta-pill path-pill" title={libraryDbLabel}>
+              {libraryDbLabel}
+            </span>
+          </div>
+
+          {indexingProgress ? (
+            <section className="progress-card">
+              <div className="progress-head">
+                <div>
+                  <p className="eyebrow">Indexing</p>
+                  <h3>{indexingProgress.completed} / {indexingProgress.total}</h3>
+                </div>
+                <div className="meta-pills">
+                  <span className="status-pill">{getIndexingPhaseLabel(indexingProgress.phase)}</span>
+                  <span className="status-pill">{indexingProgress.percent}%</span>
+                </div>
+              </div>
+              <div className="progress-bar">
+                <div
+                  className="progress-bar-fill"
+                  style={{ width: `${indexingProgress.percent}%` }}
+                />
+              </div>
+              <div className="progress-meta-row">
+                <span>indexed {indexingProgress.indexed}</span>
+                <span>skipped {indexingProgress.skipped}</span>
+                <span>failed {indexingProgress.failed}</span>
+              </div>
+              <p className="progress-caption">
+                {indexingProgress.currentFile ?? "Preparing"}
+              </p>
+              {indexingPhaseMessage ? <p className="progress-caption">{indexingPhaseMessage}</p> : null}
+            </section>
+          ) : null}
+
+          {indexingResult ? (
+            <div className="inline-note">
+              Indexed {indexingResult.total} images. The database was written into the current folder.
             </div>
+          ) : null}
 
-            <div className="chip-row">
-              {PROMPT_PRESETS.map((preset) => (
-                <button
-                  key={preset.label}
-                  className="chip"
-                  type="button"
-                  onClick={() => appendPreset(preset.query)}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
+          {indexingError ? <p className="inline-error">{indexingError}</p> : null}
+        </section>
 
-            <label className="textarea-shell">
-              <span className="sr-only">Prompt input</span>
-              <textarea
-                value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
-                onKeyDown={(event) => {
-                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                    event.preventDefault();
-                    void runGeneration(activeVariant);
-                  }
-                }}
-                placeholder="比如：帮我从最近的照片里挑 9 张适合发朋友圈的，整体温柔一点，再给我一句文案。"
-              />
-            </label>
+        <section id="compose" className="section-block compose-card">
+          <div className="section-heading">
+            <p className="eyebrow">Compose</p>
+            <h2>Describe the set you want.</h2>
+          </div>
 
-            <div className="composer-actions">
+          <div className="composer-suggestions">
+            {PROMPT_PRESETS.map((preset) => (
+              <button
+                key={preset.label}
+                className="chip-button"
+                type="button"
+                onClick={() => appendPreset(preset.query)}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+
+          <label className="composer-field">
+            <span className="sr-only">Prompt input</span>
+            <textarea
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                  event.preventDefault();
+                  void runGeneration(activeVariant);
+                }
+              }}
+              placeholder="For example: pick a gentle, post-ready set from my recent library."
+            />
+          </label>
+
+          <div className="composer-footer">
+            <div className="action-row">
               <button
                 className="primary-button"
                 type="button"
                 onClick={() => void runGeneration("balanced")}
                 disabled={isGenerating}
               >
-                {isGenerating && activeVariant === "balanced"
-                  ? "Generating..."
-                  : "生成图集草稿"}
+                {isGenerating && activeVariant === "balanced" ? "Generating..." : "Generate draft"}
               </button>
               <button
                 className="secondary-button"
@@ -709,201 +714,164 @@ function App() {
                 onClick={() => void runGeneration("soft")}
                 disabled={isGenerating}
               >
-                {isGenerating && activeVariant === "soft" ? "Refining..." : "更柔和一点"}
+                {isGenerating && activeVariant === "soft" ? "Refining..." : "Make it softer"}
               </button>
-              <span className="meta-copy">
+            </div>
+
+            <div className="meta-pills">
+              <span className="meta-pill">
                 {activeResultDraft
-                  ? `${activeResultDraft.candidateCount} candidates → ${activeResultDraft.selectedCount} selected`
-                  : "等待这次本地检索的真实结果"}
+                  ? `${activeResultDraft.candidateCount} → ${activeResultDraft.selectedCount}`
+                  : "Waiting for a real result"}
               </span>
+              <span className="meta-pill">Cmd/Ctrl + Enter</span>
             </div>
+          </div>
 
-            {generationError ? <p className="library-error">{generationError}</p> : null}
+          {generationError ? <p className="inline-error">{generationError}</p> : null}
 
-            <div className="composer-meta">
-              <div>
-                <span className="summary-label">适合场景</span>
-                <p>创作者日记 / 回忆图集 / 社交发布草稿</p>
-              </div>
-              <div>
-                <span className="summary-label">输出内容</span>
-                <p>9 张图、标题、顺序建议和一条可复制文案</p>
-              </div>
-            </div>
-
-            <div className="composer-note">
-              <span className="summary-label">本次解析</span>
-              <div className="token-row">
-                {previewAnalysis.tokens.map((token) => (
-                  <span className="analysis-token" key={token}>
-                    {token}
-                  </span>
-                ))}
-              </div>
-              <p>
-                {previewAnalysis.locationLabel} · {previewAnalysis.timeHint} ·
-                快捷键 `Cmd/Ctrl + Enter`
-              </p>
-            </div>
-          </article>
-
-          <article className="panel pipeline-panel" id="pipeline">
-            <div className="panel-head">
-              <p className="panel-label">Pipeline</p>
-              <p className="panel-title">让用户感觉系统真的在工作</p>
-            </div>
-
-            <section className="indexing-progress-card generation-progress-card">
-              <div className="indexing-progress-head">
-                <div>
-                  <span className="summary-label">Live Progress</span>
-                  <p className="indexing-progress-title">{generationProgress.title}</p>
-                </div>
-                <div className="indexing-progress-meta">
-                  <span className="analysis-token progress-phase-token">
-                    {getGenerationPhaseLabel(generationProgress.phase)}
-                  </span>
-                  <span className="analysis-token">{generationProgress.percent}%</span>
-                </div>
-              </div>
-              <div className="progress-bar">
-                <div
-                  className="progress-bar-fill"
-                  style={{ width: `${generationProgress.percent}%` }}
-                />
-              </div>
-              <div className="progress-stats">
-                <span>
-                  {generationProgress.stepIndex > 0
-                    ? `阶段 ${generationProgress.stepIndex} / ${PIPELINE_LENGTH}`
-                    : "等待新的 prompt"}
-                </span>
-              </div>
-              <p className="progress-current-file">{generationProgress.detail}</p>
-            </section>
-
-            <div className="pipeline-list">
-              {pipeline.map((step) => (
-                <section
-                  className={`pipeline-step status-${step.status}`}
-                  key={step.id}
-                >
-                  <div className="pipeline-index">{String(step.index).padStart(2, "0")}</div>
-                  <div className="pipeline-copy">
-                    <h3>{step.title}</h3>
-                    <p>{step.detail}</p>
-                    <span>{step.metric}</span>
-                  </div>
-                </section>
-              ))}
-            </div>
-
-            <div className="pipeline-caption">
-              <span className="summary-label">当前模式</span>
-              <p>
-                {activeVariant === "soft"
-                  ? "Softer curation: 提高柔和、安静和留白的权重。"
-                  : "Balanced curation: 保持人物、细节和场景之间的节奏。"}
-              </p>
-            </div>
-          </article>
-
-          <article className="panel result-panel" id="result">
-            <div className="panel-head result-head">
-              <div>
-                <p className="panel-label">Ready-to-post result</p>
-                <p className="result-title">{activeResultDraft?.title ?? "等待生成结果"}</p>
-                <p className="result-subtitle">
-                  {activeResultDraft
-                    ? "selected from your local photo library"
-                    : "完成一次真实检索后，这里会显示本地照片结果"}
-                </p>
-              </div>
-              {activeResultDraft ? (
-                <div className="result-badges">
-                  <span className="analysis-token">{activeResultDraft.analysis.toneLabel}</span>
-                  <span className="analysis-token">{activeResultDraft.analysis.focus}</span>
-                  <span className="analysis-token">{activeResultDraft.analysis.timeHint}</span>
-                </div>
-              ) : null}
-            </div>
-
-            <section className="caption-card">
-              <p>
-                {activeResultDraft?.caption ??
-                  "还没有拿到本地检索结果。先确认已经完成 indexing，然后再生成一次照片组。"}
-              </p>
-            </section>
-
-            {activeResultDraft ? (
-              <section className="result-grid">
-                {activeResultDraft.selected.map((photo, index) => (
-                  <article
-                    className="photo-card"
-                    key={photo.id}
-                    style={{ backgroundColor: photo.surfaceTint }}
-                  >
-                    <img src={photo.imageUrl} alt={photo.title} />
-                    <div className="photo-overlay">
-                      {index === 0 ? <span className="hero-tag">Hero</span> : null}
-                      <div className="photo-meta">
-                        <strong>{photo.title}</strong>
-                        <span>{photo.slot}</span>
-                      </div>
-                    </div>
-                  </article>
-                ))}
-              </section>
-            ) : null}
-
-            {activeResultDraft ? (
-              <div className="result-actions">
-                <button className="primary-button" type="button" onClick={() => void handleCopyCaption()}>
-                  {copyState === "copied"
-                    ? "已复制文案"
-                    : copyState === "failed"
-                      ? "复制失败"
-                      : "复制文案"}
-                </button>
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() => void runGeneration("soft")}
-                  disabled={isGenerating}
-                >
-                  更柔和一点
-                </button>
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() => downloadDraft(activeResultDraft)}
-                >
-                  导出结果
-                </button>
-              </div>
-            ) : null}
-
-            {activeResultDraft ? (
-              <div className="result-notes">
-                {activeResultDraft.notes.map((note) => (
-                  <p key={note}>{note}</p>
-                ))}
-              </div>
-            ) : null}
-          </article>
+          <div className="signal-row">
+            {previewAnalysis.tokens.slice(0, 4).map((token) => (
+              <span className="status-pill" key={token}>
+                {token}
+              </span>
+            ))}
+          </div>
         </section>
 
-        <footer className="footer">
-          <p>Designed as a premium AI publishing assistant, not a photo search dashboard.</p>
-          <p>
-            {selectedDbPath
-              ? `Local DB: ${selectedDbPath}`
-              : health.state === "connected" && health.imageLibraryDir
-                ? `Library: ${health.imageLibraryDir}`
-              : "Frontend demo is ready for real retrieval integration."}
-          </p>
-        </footer>
+        <section id="process" className="section-block process-panel">
+          <div className="section-heading compact-heading">
+            <p className="eyebrow">Process</p>
+            <h2>Visible progress</h2>
+          </div>
+
+          <section className="progress-card live-progress-card">
+            <div className="progress-head">
+              <div>
+                <p className="eyebrow">Live progress</p>
+                <h3>{generationProgress.title}</h3>
+              </div>
+              <div className="meta-pills">
+                <span className="status-pill">{getGenerationPhaseLabel(generationProgress.phase)}</span>
+                <span className="status-pill">{generationProgress.percent}%</span>
+              </div>
+            </div>
+            <div className="progress-bar">
+              <div
+                className="progress-bar-fill"
+                style={{ width: `${generationProgress.percent}%` }}
+              />
+            </div>
+            <p className="progress-caption">
+              {generationProgress.stepIndex > 0
+                ? `Step ${generationProgress.stepIndex} / ${PIPELINE_LENGTH}`
+                : "Waiting to start"}
+            </p>
+          </section>
+
+          <div className="process-grid">
+            {pipeline.map((step) => {
+              const state =
+                step.status === "done" ? "complete" : step.status === "active" ? "active" : "idle";
+              return (
+                <article className={`process-card state-${state}`} key={step.id}>
+                  <span className="process-index">{String(step.index).padStart(2, "0")}</span>
+                  <h3>{step.title}</h3>
+                  <p>{step.detail}</p>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+
+        <section id="result" className="section-block curated-stage">
+          <div className="section-heading">
+            <p className="eyebrow">Result</p>
+            <h2>{activeResultDraft?.title ?? "Results appear here after generation"}</h2>
+          </div>
+
+          {activeResultDraft && activePhoto ? (
+            <>
+              <div className="gallery-stage">
+                <article className="lead-stage">
+                  <div className="photo-stage" style={{ backgroundColor: activePhoto.surfaceTint }}>
+                    <img src={activePhoto.imageUrl} alt={activePhoto.title} />
+                    <div className="photo-overlay">
+                      <span className="photo-badge">{activePhoto.slot}</span>
+                      <div className="photo-copy">
+                        <h3>{activePhoto.title}</h3>
+                        <p>{activePhoto.location}</p>
+                        <small>{activePhoto.takenAt}</small>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+
+                <aside className="curation-read">
+                  <div className="highlight-row">
+                    <span className="highlight-chip">{activeResultDraft.analysis.toneLabel}</span>
+                    <span className="highlight-chip">{activeResultDraft.analysis.focus}</span>
+                    <span className="highlight-chip">{activeResultDraft.analysis.timeHint}</span>
+                  </div>
+
+                  <p className="story-body">{activeResultDraft.caption}</p>
+
+                  <div className="action-row">
+                    <button className="secondary-button" type="button" onClick={() => void handleCopyCaption()}>
+                      {copyState === "copied"
+                        ? "Copied"
+                        : copyState === "failed"
+                          ? "Copy failed"
+                          : "Copy caption"}
+                    </button>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => void runGeneration("soft")}
+                      disabled={isGenerating}
+                    >
+                      Make it softer
+                    </button>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => downloadDraft(activeResultDraft)}
+                    >
+                      Export
+                    </button>
+                  </div>
+                </aside>
+              </div>
+
+              <div className="thumbnail-grid">
+                {activeResultDraft.selected.map((photo, index) => (
+                  <button
+                    key={photo.id}
+                    type="button"
+                    className={`thumbnail-card ${photo.id === activePhoto.id ? "active" : ""}`}
+                    onClick={() => setActivePhotoId(photo.id)}
+                  >
+                    <span className="thumbnail-art" style={{ backgroundColor: photo.surfaceTint }}>
+                      <img src={photo.imageUrl} alt={photo.title} />
+                      <small>{String(index + 1).padStart(2, "0")}</small>
+                    </span>
+                    <span className="thumbnail-copy">
+                      <strong>{photo.title}</strong>
+                      <em>{photo.slot}</em>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="empty-card">
+              <strong>Generate one draft first</strong>
+              <span>Once indexing is done, real local photos will appear here.</span>
+            </div>
+          )}
+        </section>
       </main>
+
       {(isGenerating || isIndexing) && (
         <div className="floating-state">
           {isIndexing

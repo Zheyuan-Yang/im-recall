@@ -223,7 +223,7 @@ ipcMain.handle(
   "memolens:start-indexing",
   async (event, options: DesktopIndexingStartOptions): Promise<DesktopIndexingResult> => {
     if (activeIndexingJob !== null) {
-      throw new Error("已有一个 indexing 任务正在运行，请先暂停后继续，或等待当前任务完成。");
+      throw new Error("An indexing job is already running. Pause or wait for the current run to finish.");
     }
 
     const folderPath = resolve(options.folderPath);
