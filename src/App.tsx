@@ -338,8 +338,6 @@ function App() {
       try {
         nextDraft = await fetchDraftFromBackend(normalizedPrompt, variant, {
           apiBase,
-          dbPath: selectedDbPath,
-          libraryRootPath: selectedFolderPath,
         });
         if (nextDraft === null) {
           setGenerationError("No visible retrieval result came back from the local library. Make sure indexing has finished.");
