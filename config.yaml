@@ -38,7 +38,7 @@ retrieval:
 
 vlm:
   vision_active: openai_gpt41_mini
-  query_active: minimax_m27
+  query_active: openai_gpt41_mini
   profiles:
     openai_gpt41_mini:
       provider: openai

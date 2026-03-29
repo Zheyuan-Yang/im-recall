@@ -128,15 +128,15 @@ class Settings:
         vision_profile_name = os.getenv(
             "VISION_VLM_PROFILE",
             (
-                legacy_profile_name
-                or str(vlm_config.get("vision_active") or vlm_config.get("active", "")).strip()
+                str(vlm_config.get("vision_active") or vlm_config.get("active", "")).strip()
+                or legacy_profile_name
             ),
         )
         query_profile_name = os.getenv(
             "QUERY_VLM_PROFILE",
             (
-                legacy_profile_name
-                or str(vlm_config.get("query_active") or vlm_config.get("active", "")).strip()
+                str(vlm_config.get("query_active") or vlm_config.get("active", "")).strip()
+                or legacy_profile_name
             ),
         )
 
